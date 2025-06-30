@@ -131,7 +131,7 @@ static void* client_handler(void* arg) {
     char* message = NULL;
     json_error_t error;
     const char* client_ip = "unknown";
-    const char* username = NULL;
+    char* username = NULL; // Change to char* to hold copied string
     time_t now;
     char timestamp[32];
 
@@ -204,15 +204,35 @@ static void* client_handler(void* arg) {
         return NULL;
     }
 
-    username = json_string_value(json_object_get(auth_obj, "username"));
+    const char* temp_username = json_string_value(json_object_get(auth_obj, "username"));
     const char* password = json_string_value(json_object_get(auth_obj, "password"));
-
-    if (!username || !password) {
+    
+    if (!temp_username || !password) {
         printf("[%s] [ERROR] Missing credentials from %s\n", timestamp, client_ip);
         
         json_t* response = json_object();
         json_object_set_new(response, "status", json_string("error"));
         json_object_set_new(response, "error_message", json_string("Username and password required"));
+        
+        char* resp_str = json_dumps(response, JSON_COMPACT);
+        if (resp_str) {
+            write_message(client_fd, resp_str);
+            free(resp_str);
+        }
+        json_decref(response);
+        json_decref(auth);
+        close(client_fd);
+        return NULL;
+    }
+
+    // Create a copy of the username
+    username = strdup(temp_username);
+    if (!username) {
+        printf("[%s] [ERROR] Failed to allocate memory for username\n", timestamp);
+        
+        json_t* response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Server memory error"));
         
         char* resp_str = json_dumps(response, JSON_COMPACT);
         if (resp_str) {
@@ -243,6 +263,7 @@ static void* client_handler(void* arg) {
         }
         json_decref(response);
         json_decref(auth);
+        free(username);
         close(client_fd);
         return NULL;
     }
@@ -250,23 +271,22 @@ static void* client_handler(void* arg) {
     printf("[%s] [AUTH] Success for user '%s' from %s\n", timestamp, username, client_ip);
 
     json_t* auth_response = json_object();
-json_object_set_new(auth_response, "status", json_string("success"));
-char* auth_resp_str = json_dumps(auth_response, JSON_COMPACT);
-if (auth_resp_str) {
-    if (write_message(client_fd, auth_resp_str) != 0) {
-        printf("[%s] [ERROR] Failed to send auth response to %s\n", timestamp, client_ip);
+    json_object_set_new(auth_response, "status", json_string("success"));
+    char* auth_resp_str = json_dumps(auth_response, JSON_COMPACT);
+    if (auth_resp_str) {
+        if (write_message(client_fd, auth_resp_str) != 0) {
+            printf("[%s] [ERROR] Failed to send auth response to %s\n", timestamp, client_ip);
+            free(auth_resp_str);
+            json_decref(auth_response);
+            json_decref(auth);
+            free(username);
+            close(client_fd);
+            return NULL;
+        }
         free(auth_resp_str);
-        json_decref(auth_response);
-        json_decref(auth);
-        close(client_fd);
-        return NULL;
     }
-    free(auth_resp_str);
-}
-json_decref(auth_response);
-
+    json_decref(auth_response);
     json_decref(auth);
-
 
     // Main message processing loop
     while (1) {
@@ -277,12 +297,12 @@ json_decref(auth_response);
         int read_result = read_message(client_fd, &message);
         if (read_result != 0) {
             printf("[%s] [DISCONNECT] Client %s (user: %s) closed connection\n", 
-                   timestamp, client_ip, username);
+                   timestamp, client_ip, username ? username : "unknown");
             break;
         }
 
         printf("[%s] [DEBUG] Message from %s (user: %s): %.*s\n", 
-               timestamp, client_ip, username,
+               timestamp, client_ip, username ? username : "unknown",
                (int)(message ? strnlen(message, 256) : 0), 
                message ? message : "NULL");
 
@@ -292,7 +312,7 @@ json_decref(auth_response);
 
         if (!root) {
             printf("[%s] [ERROR] Invalid JSON from %s (user: %s): %s\n", 
-                   timestamp, client_ip, username, error.text);
+                   timestamp, client_ip, username ? username : "unknown", error.text);
             
             json_t* response = json_object();
             json_object_set_new(response, "status", json_string("error"));
@@ -310,7 +330,7 @@ json_decref(auth_response);
         json_t* op_json = json_object_get(root, "operation");
         if (!op_json || !json_is_string(op_json)) {
             printf("[%s] [ERROR] Missing operation from %s (user: %s)\n", 
-                   timestamp, client_ip, username);
+                   timestamp, client_ip, username ? username : "unknown");
             
             json_t* response = json_object();
             json_object_set_new(response, "status", json_string("error"));
@@ -331,9 +351,9 @@ json_decref(auth_response);
         json_t* response = json_object();
 
         printf("[%s] [OP] %s from %s (user: %s)\n", 
-               timestamp, operation, client_ip, username);
+               timestamp, operation, client_ip, username ? username : "unknown");
 
-        // Permission checking (existing logic)
+        // Permission checking
         int required_perm = PERM_NONE;
         if (strcmp(operation, "rbac_add_user") == 0 || 
             strcmp(operation, "rbac_add_role") == 0 ||
@@ -356,7 +376,7 @@ json_decref(auth_response);
         if (required_perm != PERM_NONE && required_perm != PERM_ADMIN && db_name) {
             if (!rbac_has_db_permission(&g_rbac, username, db_name, required_perm)) {
                 printf("[%s] [AUTH] Denied %s on %s for %s\n", 
-                       timestamp, operation, db_name, username);
+                       timestamp, operation, db_name, username ? username : "unknown");
                 
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Permission denied"));
@@ -372,7 +392,7 @@ json_decref(auth_response);
             }
         } else if (required_perm == PERM_ADMIN) {
             if (!rbac_has_permission(&g_rbac, username, PERM_ADMIN)) {
-                printf("[%s] [AUTH] Admin denied for %s\n", timestamp, username);
+                printf("[%s] [AUTH] Admin denied for %s\n", timestamp, username ? username : "unknown");
                 
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Permission denied"));
@@ -414,23 +434,23 @@ json_decref(auth_response);
                 json_object_set_new(response, "status", json_string("success"));
             }
         } else if (strcmp(operation, "rbac_assign_role") == 0) {
-            const char* username = json_string_value(json_object_get(params, "username"));
+            const char* new_username = json_string_value(json_object_get(params, "username"));
             const char* role_name = json_string_value(json_object_get(params, "role_name"));
-            if (!username || !role_name) {
+            if (!new_username || !role_name) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Invalid parameters"));
-            } else if (rbac_assign_role(&g_rbac, username, role_name) != 0) {
+            } else if (rbac_assign_role(&g_rbac, new_username, role_name) != 0) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Failed to assign role"));
             } else {
                 json_object_set_new(response, "status", json_string("success"));
             }
         } else if (strcmp(operation, "rbac_remove_user") == 0) {
-            const char* username = json_string_value(json_object_get(params, "username"));
-            if (!username) {
+            const char* new_username = json_string_value(json_object_get(params, "username"));
+            if (!new_username) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Invalid parameters"));
-            } else if (rbac_remove_user(&g_rbac, username) != 0) {
+            } else if (rbac_remove_user(&g_rbac, new_username) != 0) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Failed to remove user"));
             } else {
@@ -448,12 +468,12 @@ json_decref(auth_response);
                 json_object_set_new(response, "status", json_string("success"));
             }
         } else if (strcmp(operation, "rbac_revoke_role") == 0) {
-            const char* username = json_string_value(json_object_get(params, "username"));
+            const char* new_username = json_string_value(json_object_get(params, "username"));
             const char* role_name = json_string_value(json_object_get(params, "role_name"));
-            if (!username || !role_name) {
+            if (!new_username || !role_name) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Invalid parameters"));
-            } else if (rbac_revoke_role(&g_rbac, username, role_name) != 0) {
+            } else if (rbac_revoke_role(&g_rbac, new_username, role_name) != 0) {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string("Failed to revoke role"));
             } else {
@@ -820,11 +840,11 @@ json_decref(auth_response);
     }
     
     printf("[%s] [DISCONNECT] Closing connection for %s (user: %s)\n", 
-           timestamp, client_ip, username);
+           timestamp, client_ip, username ? username : "unknown");
+    free(username); // Free the copied username
     close(client_fd);
     return NULL;
 }
-
 static void signal_handler(int sig) {
     if (server_fd >= 0) {
         close(server_fd);
