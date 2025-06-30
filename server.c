@@ -1,4 +1,6 @@
+// server.c
 #include "smt_db.h"
+#include "rbac.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,8 +19,8 @@
 #define BUFFER_SIZE 4096
 #define MAX_DATABASES 10
 
-//static DatabaseManager g_db_manager = {0};
 static int server_fd = -1;
+static RBACSystem g_rbac;
 
 static int read_message(int fd, char** message) {
     uint32_t length;
@@ -123,33 +125,202 @@ static json_t* stats_to_json(const DatabaseStats* stats) {
     return obj;
 }
 
+
 static void* client_handler(void* arg) {
     int client_fd = (int)(intptr_t)arg;
-    char* message;
+    char* message = NULL;
     json_error_t error;
+    const char* client_ip = "unknown";
+    const char* username = NULL;
+    time_t now;
+    char timestamp[32];
 
-    while (read_message(client_fd, &message) == 0) {
+    // Get current timestamp
+    time(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+    // Get client IP address
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    if (getpeername(client_fd, (struct sockaddr*)&addr, &addr_len) == 0) {
+        client_ip = inet_ntoa(addr.sin_addr);
+    }
+    
+    printf("[%s] [CONNECT] New connection from %s (FD: %d)\n", timestamp, client_ip, client_fd);
+
+    // Authentication phase
+    if (read_message(client_fd, &message) != 0) {
+        printf("[%s] [ERROR] Failed to read auth message from %s (FD: %d)\n", 
+               timestamp, client_ip, client_fd);
+        close(client_fd);
+        return NULL;
+    }
+
+    printf("[%s] [DEBUG] Auth message from %s: %.*s\n", 
+           timestamp, client_ip, 
+           (int)(message ? strnlen(message, 256) : 0), 
+           message ? message : "NULL");
+
+    json_t* auth = json_loads(message, 0, &error);
+    free(message);
+    message = NULL;
+
+    if (!auth) {
+        printf("[%s] [ERROR] Invalid JSON from %s: %s (line %d, col %d)\n", 
+               timestamp, client_ip, error.text, error.line, error.column);
+        
+        json_t* response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Invalid authentication JSON"));
+        
+        char* resp_str = json_dumps(response, JSON_COMPACT);
+        if (resp_str) {
+            write_message(client_fd, resp_str);
+            free(resp_str);
+        } else {
+            printf("[%s] [ERROR] Failed to serialize error response\n", timestamp);
+        }
+        json_decref(response);
+        close(client_fd);
+        return NULL;
+    }
+
+    json_t* auth_obj = json_object_get(auth, "auth");
+    if (!auth_obj || !json_is_object(auth_obj)) {
+        printf("[%s] [ERROR] Missing or invalid auth object from %s\n", timestamp, client_ip);
+        
+        json_t* response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Missing or invalid auth object"));
+        
+        char* resp_str = json_dumps(response, JSON_COMPACT);
+        if (resp_str) {
+            write_message(client_fd, resp_str);
+            free(resp_str);
+        }
+        json_decref(response);
+        json_decref(auth);
+        close(client_fd);
+        return NULL;
+    }
+
+    username = json_string_value(json_object_get(auth_obj, "username"));
+    const char* password = json_string_value(json_object_get(auth_obj, "password"));
+
+    if (!username || !password) {
+        printf("[%s] [ERROR] Missing credentials from %s\n", timestamp, client_ip);
+        
+        json_t* response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Username and password required"));
+        
+        char* resp_str = json_dumps(response, JSON_COMPACT);
+        if (resp_str) {
+            write_message(client_fd, resp_str);
+            free(resp_str);
+        }
+        json_decref(response);
+        json_decref(auth);
+        close(client_fd);
+        return NULL;
+    }
+
+    printf("[%s] [AUTH] Attempt for user '%s' from %s\n", timestamp, username, client_ip);
+    
+    int auth_result = rbac_authenticate_user(&g_rbac, username, password);
+    if (auth_result != 0) {
+        printf("[%s] [AUTH] Failed for user '%s' from %s (code: %d)\n", 
+               timestamp, username, client_ip, auth_result);
+        
+        json_t* response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Authentication failed"));
+        
+        char* resp_str = json_dumps(response, JSON_COMPACT);
+        if (resp_str) {
+            write_message(client_fd, resp_str);
+            free(resp_str);
+        }
+        json_decref(response);
+        json_decref(auth);
+        close(client_fd);
+        return NULL;
+    }
+
+    printf("[%s] [AUTH] Success for user '%s' from %s\n", timestamp, username, client_ip);
+
+    json_t* auth_response = json_object();
+json_object_set_new(auth_response, "status", json_string("success"));
+char* auth_resp_str = json_dumps(auth_response, JSON_COMPACT);
+if (auth_resp_str) {
+    if (write_message(client_fd, auth_resp_str) != 0) {
+        printf("[%s] [ERROR] Failed to send auth response to %s\n", timestamp, client_ip);
+        free(auth_resp_str);
+        json_decref(auth_response);
+        json_decref(auth);
+        close(client_fd);
+        return NULL;
+    }
+    free(auth_resp_str);
+}
+json_decref(auth_response);
+
+    json_decref(auth);
+
+
+    // Main message processing loop
+    while (1) {
+        // Get new timestamp for each operation
+        time(&now);
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+        int read_result = read_message(client_fd, &message);
+        if (read_result != 0) {
+            printf("[%s] [DISCONNECT] Client %s (user: %s) closed connection\n", 
+                   timestamp, client_ip, username);
+            break;
+        }
+
+        printf("[%s] [DEBUG] Message from %s (user: %s): %.*s\n", 
+               timestamp, client_ip, username,
+               (int)(message ? strnlen(message, 256) : 0), 
+               message ? message : "NULL");
+
         json_t* root = json_loads(message, 0, &error);
         free(message);
+        message = NULL;
+
         if (!root) {
+            printf("[%s] [ERROR] Invalid JSON from %s (user: %s): %s\n", 
+                   timestamp, client_ip, username, error.text);
+            
             json_t* response = json_object();
             json_object_set_new(response, "status", json_string("error"));
             json_object_set_new(response, "error_message", json_string("Invalid JSON"));
+            
             char* resp_str = json_dumps(response, JSON_COMPACT);
-            write_message(client_fd, resp_str);
-            free(resp_str);
+            if (resp_str) {
+                write_message(client_fd, resp_str);
+                free(resp_str);
+            }
             json_decref(response);
             continue;
         }
 
         json_t* op_json = json_object_get(root, "operation");
         if (!op_json || !json_is_string(op_json)) {
+            printf("[%s] [ERROR] Missing operation from %s (user: %s)\n", 
+                   timestamp, client_ip, username);
+            
             json_t* response = json_object();
             json_object_set_new(response, "status", json_string("error"));
             json_object_set_new(response, "error_message", json_string("Missing or invalid operation"));
+            
             char* resp_str = json_dumps(response, JSON_COMPACT);
-            write_message(client_fd, resp_str);
-            free(resp_str);
+            if (resp_str) {
+                write_message(client_fd, resp_str);
+                free(resp_str);
+            }
             json_decref(response);
             json_decref(root);
             continue;
@@ -159,7 +330,138 @@ static void* client_handler(void* arg) {
         json_t* params = json_object_get(root, "params");
         json_t* response = json_object();
 
-        if (strcmp(operation, "db_create") == 0) {
+        printf("[%s] [OP] %s from %s (user: %s)\n", 
+               timestamp, operation, client_ip, username);
+
+        // Permission checking (existing logic)
+        int required_perm = PERM_NONE;
+        if (strcmp(operation, "rbac_add_user") == 0 || 
+            strcmp(operation, "rbac_add_role") == 0 ||
+            strcmp(operation, "rbac_assign_role") == 0 ||
+            strcmp(operation, "rbac_remove_user") == 0 ||
+            strcmp(operation, "rbac_remove_role") == 0 ||
+            strcmp(operation, "rbac_revoke_role") == 0) {
+            required_perm = PERM_ADMIN;
+        } else if (strstr(operation, "find") || strstr(operation, "list") || strstr(operation, "get")) {
+            required_perm = PERM_READ;
+        } else if (strstr(operation, "insert") || strstr(operation, "update") || 
+                   strstr(operation, "create") || strstr(operation, "open")) {
+            required_perm = PERM_WRITE;
+        } else if (strstr(operation, "delete") || strstr(operation, "drop") || 
+                   strstr(operation, "close")) {
+            required_perm = PERM_DELETE;
+        }
+
+        const char* db_name = json_string_value(json_object_get(params, "db_name"));
+        if (required_perm != PERM_NONE && required_perm != PERM_ADMIN && db_name) {
+            if (!rbac_has_db_permission(&g_rbac, username, db_name, required_perm)) {
+                printf("[%s] [AUTH] Denied %s on %s for %s\n", 
+                       timestamp, operation, db_name, username);
+                
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Permission denied"));
+                
+                char* resp_str = json_dumps(response, JSON_COMPACT);
+                if (resp_str) {
+                    write_message(client_fd, resp_str);
+                    free(resp_str);
+                }
+                json_decref(response);
+                json_decref(root);
+                continue;
+            }
+        } else if (required_perm == PERM_ADMIN) {
+            if (!rbac_has_permission(&g_rbac, username, PERM_ADMIN)) {
+                printf("[%s] [AUTH] Admin denied for %s\n", timestamp, username);
+                
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Permission denied"));
+                
+                char* resp_str = json_dumps(response, JSON_COMPACT);
+                if (resp_str) {
+                    write_message(client_fd, resp_str);
+                    free(resp_str);
+                }
+                json_decref(response);
+                json_decref(root);
+                continue;
+            }
+        }
+
+        // RBAC operations
+        if (strcmp(operation, "rbac_add_user") == 0) {
+            const char* new_username = json_string_value(json_object_get(params, "username"));
+            const char* password = json_string_value(json_object_get(params, "password"));
+            if (!new_username || !password) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_add_user(&g_rbac, new_username, password) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to add user"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        } else if (strcmp(operation, "rbac_add_role") == 0) {
+            const char* role_name = json_string_value(json_object_get(params, "role_name"));
+            int permissions = json_integer_value(json_object_get(params, "permissions"));
+            if (!role_name) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_add_role(&g_rbac, role_name, permissions) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to add role"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        } else if (strcmp(operation, "rbac_assign_role") == 0) {
+            const char* username = json_string_value(json_object_get(params, "username"));
+            const char* role_name = json_string_value(json_object_get(params, "role_name"));
+            if (!username || !role_name) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_assign_role(&g_rbac, username, role_name) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to assign role"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        } else if (strcmp(operation, "rbac_remove_user") == 0) {
+            const char* username = json_string_value(json_object_get(params, "username"));
+            if (!username) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_remove_user(&g_rbac, username) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to remove user"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        } else if (strcmp(operation, "rbac_remove_role") == 0) {
+            const char* role_name = json_string_value(json_object_get(params, "role_name"));
+            if (!role_name) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_remove_role(&g_rbac, role_name) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to remove role"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        } else if (strcmp(operation, "rbac_revoke_role") == 0) {
+            const char* username = json_string_value(json_object_get(params, "username"));
+            const char* role_name = json_string_value(json_object_get(params, "role_name"));
+            if (!username || !role_name) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Invalid parameters"));
+            } else if (rbac_revoke_role(&g_rbac, username, role_name) != 0) {
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "error_message", json_string("Failed to revoke role"));
+            } else {
+                json_object_set_new(response, "status", json_string("success"));
+            }
+        }
+        // Existing operations (unchanged)
+        else if (strcmp(operation, "db_create") == 0) {
             const char* db_name = json_string_value(json_object_get(params, "db_name"));
             db_error_t err = db_create(db_name);
             if (err == DB_SUCCESS) {
@@ -475,14 +777,9 @@ static void* client_handler(void* arg) {
             const char* db_name = json_string_value(json_object_get(params, "db_name"));
             json_t* verification_results = NULL;
             db_error_t err = db_verify_integrity(db_name, &verification_results);
-            
             if (err == DB_SUCCESS) {
                 json_object_set_new(response, "status", json_string("success"));
-                if (verification_results) {
-                    json_object_set_new(response, "verification_results", verification_results);
-                } else {
-                    json_object_set_new(response, "verification_results", json_array());
-                }
+                json_object_set_new(response, "verification_results", verification_results ? verification_results : json_array());
             } else {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string(db_error_string(err)));
@@ -497,12 +794,33 @@ static void* client_handler(void* arg) {
 
         char* resp_str = json_dumps(response, JSON_COMPACT);
         if (resp_str) {
-            write_message(client_fd, resp_str);
+            printf("[%s] [DEBUG] Response to %s: %.*s\n", 
+                   timestamp, client_ip,
+                   (int)strnlen(resp_str, 256), resp_str);
+            
+            if (write_message(client_fd, resp_str) != 0) {
+                printf("[%s] [ERROR] Failed to send response to %s\n", timestamp, client_ip);
+                free(resp_str);
+                json_decref(response);
+                json_decref(root);
+                break;
+            }
             free(resp_str);
+        } else {
+            printf("[%s] [ERROR] Failed to serialize response\n", timestamp);
         }
+        
         json_decref(response);
         json_decref(root);
     }
+
+    // Cleanup
+    if (message) {
+        free(message);
+    }
+    
+    printf("[%s] [DISCONNECT] Closing connection for %s (user: %s)\n", 
+           timestamp, client_ip, username);
     close(client_fd);
     return NULL;
 }
@@ -511,7 +829,14 @@ static void signal_handler(int sig) {
     if (server_fd >= 0) {
         close(server_fd);
     }
+
+    // Save RBAC data
+    char rbac_path[1024];
+    snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
+    rbac_save(&g_rbac, rbac_path);
+
     db_manager_cleanup();
+    rbac_cleanup(&g_rbac);
     exit(0);
 }
 
@@ -539,10 +864,23 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    // Initialize RBAC system
+    if (rbac_init(&g_rbac) != 0) {
+        fprintf(stderr, "RBAC initialization failed with errno: %d (%s)\n", errno, strerror(errno));
+        db_manager_cleanup();
+        exit(1);
+    }
+
+    // Load RBAC data if exists
+    char rbac_path[1024];
+    snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", persistence_path);
+    rbac_load(&g_rbac, rbac_path);
+
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("Socket creation failed");
         db_manager_cleanup();
+        rbac_cleanup(&g_rbac);
         exit(1);
     }
 
@@ -554,6 +892,7 @@ int main(int argc, char* argv[]) {
         perror("Bind failed");
         close(server_fd);
         db_manager_cleanup();
+        rbac_cleanup(&g_rbac);
         exit(1);
     }
 
@@ -561,6 +900,7 @@ int main(int argc, char* argv[]) {
         perror("Listen failed");
         close(server_fd);
         db_manager_cleanup();
+        rbac_cleanup(&g_rbac);
         exit(1);
     }
 
@@ -582,6 +922,6 @@ int main(int argc, char* argv[]) {
 
     close(server_fd);
     db_manager_cleanup();
+    rbac_cleanup(&g_rbac);
     return 0;
 }
-
