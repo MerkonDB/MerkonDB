@@ -473,12 +473,22 @@ static void* client_handler(void* arg) {
             }
         } else if (strcmp(operation, "db_verify_integrity") == 0) {
             const char* db_name = json_string_value(json_object_get(params, "db_name"));
-            db_error_t err = db_verify_integrity(db_name);
+            json_t* verification_results = NULL;
+            db_error_t err = db_verify_integrity(db_name, &verification_results);
+            
             if (err == DB_SUCCESS) {
                 json_object_set_new(response, "status", json_string("success"));
+                if (verification_results) {
+                    json_object_set_new(response, "verification_results", verification_results);
+                } else {
+                    json_object_set_new(response, "verification_results", json_array());
+                }
             } else {
                 json_object_set_new(response, "status", json_string("error"));
                 json_object_set_new(response, "error_message", json_string(db_error_string(err)));
+                if (verification_results) {
+                    json_decref(verification_results);
+                }
             }
         } else {
             json_object_set_new(response, "status", json_string("error"));

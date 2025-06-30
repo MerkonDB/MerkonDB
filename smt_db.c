@@ -1109,8 +1109,8 @@ db_error_t db_compact(const char* db_name) {
     return DB_SUCCESS;
 }
 
-db_error_t db_verify_integrity(const char* db_name) {
-    if (!db_name) return DB_ERROR_NULL_POINTER;
+db_error_t db_verify_integrity(const char* db_name, json_t** verification_results) {
+    if (!db_name || !verification_results) return DB_ERROR_NULL_POINTER;
     
     Database* db = find_database(db_name);
     if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
@@ -1118,30 +1118,42 @@ db_error_t db_verify_integrity(const char* db_name) {
     pthread_rwlock_rdlock(&db->lock);
     
     db_error_t final_error = DB_SUCCESS;
+    *verification_results = json_array(); // Initialize output array
+    
     for (size_t i = 0; i < db->collection_count; i++) {
         Collection* col = &db->collections[i];
         if (!col->is_open) continue;
         
         pthread_rwlock_rdlock(&col->lock);
         
-        // Verify the SMT structure
         unsigned char root_hash[HASH_SIZE];
         smt_error_t err = smt_get_root(&col->tree, root_hash);
         if (err != SMT_SUCCESS) {
             final_error = (db_error_t)err;
             pthread_rwlock_unlock(&col->lock);
-            break;
+            json_decref(*verification_results);
+            *verification_results = NULL;
+            pthread_rwlock_unlock(&db->lock);
+            return final_error;
         }
         
-        // Additional verification could be added here
+        // Convert root hash to string
+        char hash_str[2*HASH_SIZE+1];
+        for (size_t j = 0; j < HASH_SIZE; j++) {
+            sprintf(hash_str + 2*j, "%02x", root_hash[j]);
+        }
+        
+        // Add verification result for this collection
+        json_t* result = json_object();
+        json_object_set_new(result, "collection", json_string(col->name));
+        json_object_set_new(result, "root_hash", json_string(hash_str));
+        json_array_append_new(*verification_results, result);
         
         pthread_rwlock_unlock(&col->lock);
     }
     
     pthread_rwlock_unlock(&db->lock);
     return final_error;
-
-
 }
 
 void db_free_list(char** list, size_t count) {

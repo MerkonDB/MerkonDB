@@ -3,10 +3,11 @@ import json
 import cmd
 import sys
 import struct
+import re
 from colorama import Fore, Style
 
 class MerkonDBClient(cmd.Cmd):
-    prompt = f"{Fore.CYAN}(merkondb){Style.RESET_ALL} "
+    prompt = f"{Fore.CYAN}(mdb){Style.RESET_ALL} "
     intro = f"{Fore.GREEN}Welcome to MerkonDB Shell. Type help or ? to list commands.{Style.RESET_ALL}\n"
 
     def __init__(self, host, port):
@@ -28,14 +29,23 @@ class MerkonDBClient(cmd.Cmd):
 
     def send_command(self, operation, params):
         try:
+            # Serialize and send the command
             message = json.dumps({"operation": operation, "params": params})
             length = len(message)
             self.sock.sendall(struct.pack('!I', length))
             self.sock.sendall(message.encode('utf-8'))
-            response_length = struct.unpack('!I', self.sock.recv(4))[0]
+
+            # Receive response length
+            response_length_data = self.sock.recv(4)
+            if len(response_length_data) != 4:
+                raise ValueError("Incomplete response length received")
+            response_length = struct.unpack('!I', response_length_data)[0]
+
+            # Receive and parse response
             response = self.sock.recv(response_length).decode('utf-8')
             resp_json = json.loads(response)
-            
+
+            # Handle successful responses
             if resp_json.get("status") == "success":
                 if "databases" in resp_json:
                     print(f"{Fore.GREEN}Available databases:{Style.RESET_ALL}", ", ".join(resp_json["databases"]))
@@ -59,10 +69,25 @@ class MerkonDBClient(cmd.Cmd):
                         print(f"  {Fore.CYAN}{k}:{Style.RESET_ALL} {v}")
                 elif "root_hash" in resp_json:
                     print(f"{Fore.GREEN}Current root hash:{Style.RESET_ALL}", resp_json["root_hash"])
+                elif "verification_results" in resp_json:
+                    print(f"{Fore.GREEN}Integrity verification results:{Style.RESET_ALL}")
+                    for result in resp_json["verification_results"]:
+                        collection = result.get("collection", "Unknown")
+                        root_hash = result.get("root_hash", "N/A")
+                        print(f"  Collection: {collection}, Root Hash: {root_hash}")
                 else:
                     print(f"{Fore.GREEN}✓ Operation completed successfully{Style.RESET_ALL}")
             else:
                 print(f"{Fore.RED}✗ Error: {resp_json.get('error_message', 'Unknown error')}{Style.RESET_ALL}")
+
+        except json.JSONDecodeError as e:
+            print(f"{Fore.RED}✗ Communication error: Invalid response format ({e}){Style.RESET_ALL}")
+            self.sock.close()
+            self.connect()
+        except ConnectionError as e:
+            print(f"{Fore.RED}✗ Communication error: Connection issue ({e}){Style.RESET_ALL}")
+            self.sock.close()
+            self.connect()
         except Exception as e:
             print(f"{Fore.RED}✗ Communication error: {e}{Style.RESET_ALL}")
             self.sock.close()
@@ -283,14 +308,20 @@ Usage: batch insert <collection_name> <key1>=<value1> <key2>=<value2> ..."""
             print(f"{Fore.RED}✗ Error: No key-value pairs provided{Style.RESET_ALL}")
             return
             
-        pairs = args[2].split()
+        # Use regex to split on spaces, but preserve quoted strings
+        pattern = r'(?:(?:"[^"]*")|[^\s=]+)(?:=(?:"[^"]*")|[^\s=]+)?'
+        pairs = re.findall(pattern, args[2])
+        
         keys = []
         values = []
         for pair in pairs:
             if '=' not in pair:
-                print(f"{Fore.RED}✗ Error: Invalid key-value pair format{Style.RESET_ALL}")
+                print(f"{Fore.RED}✗ Error: Invalid key-value pair format: {pair}{Style.RESET_ALL}")
                 return
             k, v = pair.split('=', 1)
+            # Remove quotes from value if present
+            if v.startswith('"') and v.endswith('"'):
+                v = v[1:-1]
             keys.append(k)
             values.append(v)
         self.send_command("db_batch_insert", {

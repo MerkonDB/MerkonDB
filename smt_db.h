@@ -4,6 +4,7 @@
 #include "smt.h"
 #include <time.h>
 #include <pthread.h>
+#include <jansson.h>
 
 // Configuration
 #define MAX_DB_NAME_LEN 64
@@ -133,6 +134,5 @@ db_error_t db_load_all();
 // Utility
 const char* db_error_string(db_error_t error);
 db_error_t db_compact(const char* db_name);
-db_error_t db_verify_integrity(const char* db_name);
-
+db_error_t db_verify_integrity(const char* db_name, json_t** verification_results);
 #endif // SMT_DB_H
