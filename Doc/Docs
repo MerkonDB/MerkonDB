@@ -1,0 +1,49 @@
+Set up SMT
+----------
+cd SMT/
+
+gcc -c smt.c -o smt.o -lssl -lcrypto
+
+gcc smt_op.c smt.o -o smt_op -lssl -lcrypto
+
+./smt_op 
+
+Run Benchmark
+--------------
+
+gcc -o benchmark smt.c smt_bench.c -lssl -lcrypto -lrt
+
+./benchmark
+
+
+DB Design
+----------
+
+gcc -o smt_db_ui smt.c smt_db.c main.c -lcrypto -lpthread -ljansson
+
+
+./smt_db_ui
+
+Shell
+---------
+gcc -shared -fPIC \
+    $(pkg-config --cflags jansson) \
+    -o libsmt_db.so \
+    smt_db.c smt.c \
+    $(pkg-config --libs jansson) \
+    -lcrypto -lm -lpthread
+
+    ldd ./libsmt_db.so
+
+    python3 main.py ./smt_db
+
+    valgrind --leak-check=full python3 main.py ./smt_db
+
+client-server
+--------------
+
+gcc -o server server.c smt.c -ljansson -lssl -lcrypto -pthread
+
+./server localhost 8080
+
+python3 client.py localhost 8080

@@ -1,0 +1,207 @@
+# MerkonDB Test Commands
+
+## Basic Database Operations
+
+```bash
+# List existing databases
+list databases
+
+# Create a new database
+create database mytest
+
+# Check if database exists
+exists database mytest
+
+# Open/close database
+open mytest
+close mytest
+
+# Use a database (set current context)
+use mytest
+
+# Get database statistics
+stats
+stats mytest
+
+# Drop a database (be careful!)
+drop database old_db
+```
+
+## Collection Operations
+
+```bash
+# First, make sure you're using a database
+use mytest
+
+# Create collections
+create collection users
+create collection products
+create collection orders
+
+# List collections in current database
+list collections
+
+# Check if collection exists
+exists collection users
+exists collection nonexistent
+
+# Drop a collection
+drop collection old_collection
+```
+
+## Data Operations
+
+```bash
+# Make sure you're using a database first
+use mytest
+
+# Insert single records
+insert users john "John Doe"
+insert users jane "Jane Smith"
+insert products laptop "Gaming Laptop"
+insert products mouse "Wireless Mouse"
+
+# Find single records
+find users john
+find products laptop
+
+# Find all records in a collection
+find all users
+find all products
+
+# Update records
+update users john "John Smith"
+update products laptop "High-end Gaming Laptop"
+
+# Batch insert multiple records
+batch insert users alice=Alice bob=Bob charlie=Charlie
+batch insert products keyboard="Mechanical Keyboard" monitor="4K Monitor"
+
+# Delete records
+delete users charlie
+delete products mouse
+```
+
+## Merkle Tree & Proof Operations
+
+```bash
+# Generate proofs for records
+generate proof users john
+generate proof products laptop
+
+# Get root hash of collections
+root hash users
+root hash products
+
+# Verify proof (you'll need actual proof JSON from generate proof)
+# Example format (replace with actual proof):
+verify proof users john "John Smith" {"hash":"abc123","siblings":[]}
+
+# Verify database integrity
+verify integrity
+```
+
+## Persistence Operations
+
+```bash
+# Save current database
+save
+
+# Save all databases
+save all
+
+# Load specific database
+load mytest
+
+# Load all databases
+load all
+
+# Compact current database (optimize storage)
+compact
+```
+
+## Testing Sequence
+
+Here's a complete test sequence you can run:
+
+```bash
+# 1. Start with database setup
+list databases
+create database testrun
+use testrun
+
+# 2. Create and populate collections
+create collection employees
+create collection departments
+
+# 3. Add some data
+insert employees emp001 "Alice Johnson"
+insert employees emp002 "Bob Wilson"
+insert departments dept001 "Engineering"
+insert departments dept002 "Marketing"
+
+# 4. Query data
+find employees emp001
+find all employees
+find all departments
+
+# 5. Test batch operations
+batch insert employees emp003="Charlie Brown" emp004="Diana Prince"
+find all employees
+
+# 6. Test Merkle operations
+generate proof employees emp001
+root hash employees
+
+# 7. Update and verify
+update employees emp001 "Alice Johnson-Smith"
+find employees emp001
+
+# 8. Test persistence
+save
+stats
+
+# 9. Test integrity
+verify integrity
+
+# 10. Cleanup test
+find all employees
+delete employees emp004
+find all employees
+
+# 11. Final operations
+compact
+save
+```
+
+## Error Testing
+
+Test these to see error handling:
+
+```bash
+# Try operations without selecting database
+create collection test_error
+
+# Try to find non-existent records
+find users nonexistent
+find nonexistent_collection somekey
+
+# Try invalid syntax
+create database
+batch insert
+generate proof users
+
+# Try operations on non-existent collections
+find nonexistent somekey
+insert nonexistent key value
+```
+
+## Quick Commands Reference
+
+```bash
+help          # Show all commands
+?             # Same as help
+quit          # Exit (or 'exit' or 'q')
+```
+
+Copy and paste these commands one by one or in groups to thoroughly test your MerkonDB client!
