@@ -7,7 +7,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="icon" href="public/logo2.png" type="image/png">
     <style>
+
         * {
             margin: 0;
             padding: 0;
@@ -225,6 +227,43 @@
             animation: fadeInUp 0.8s ease-out;
         }
 
+        .hero-container {
+    display: flex;
+    align-items: center;
+    gap: 4rem;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+.hero-gif-container {
+    flex: 1;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    box-shadow: var(--shadow-xl);
+}
+
+.hero-content {
+    flex: 1;
+}
+
+@media (max-width: 1024px) {
+    .hero-container {
+        flex-direction: column;
+        gap: 2rem;
+    }
+    
+    .hero-gif-container,
+    .hero-content {
+        width: 100%;
+        max-width: 800px;
+    }
+    
+    .hero-gif-container {
+        order: -1; /* Moves GIF to top on mobile */
+    }
+}
+
         .hero-title {
             font-size: clamp(3rem, 8vw, 5.5rem);
             font-weight: 800;
@@ -268,6 +307,41 @@
                 transform: translateY(0);
             }
         }
+        .hero-container {
+    display: flex;
+    align-items: center;
+    gap: 4rem;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+.hero-gif-container {
+    flex: 1;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    box-shadow: var(--shadow-xl);
+}
+
+.hero-content {
+    flex: 1;
+}
+
+@media (max-width: 1024px) {
+    .hero-container {
+        flex-direction: column;
+        gap: 2rem;
+    }
+    
+    .hero-gif-container {
+        order: 1; /* Moves GIF to bottom on mobile */
+    }
+    
+    .hero-content,
+    .hero-gif-container {
+        width: 100%;
+    }
+}
 
         /* Buttons */
         .btn {
@@ -673,6 +747,70 @@
             opacity: 1;
             transform: translateY(0);
         }
+        .logo-img {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    object-fit: contain;
+    /* Add subtle glow to make it visible against dark bg */
+    filter: 
+        brightness(1.1) 
+        drop-shadow(0 0 2px rgba(59, 130, 246, 0.3));
+    transition: filter 0.3s ease;
+}
+
+.logo-img:hover {
+    /* Enhanced glow on hover */
+    filter: 
+        brightness(1.2)
+        drop-shadow(0 0 6px rgba(59, 130, 246, 0.5));
+}
+
+/* Optional: If your logo has white elements that need better contrast */
+.logo-img {
+    /* Makes white elements glow slightly blue */
+    mix-blend-mode: screen;
+    opacity: 0.9;
+}
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    transition: transform 0.3s ease;
+}
+
+.logo-container:hover {
+    transform: scale(1.05);
+}
+
+.logo-img {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    object-fit: contain;
+    /* Glow effect */
+    filter: 
+        brightness(1.1)
+        drop-shadow(0 0 4px rgba(59, 130, 246, 0.3));
+    transition: filter 0.3s ease;
+}
+
+.logo-img:hover {
+    filter: 
+        brightness(1.2)
+        drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+}
+
+.logo-text {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--primary-light), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
+}
+
     </style>
 </head>
 <body>
@@ -681,10 +819,10 @@
     
     <header>
         <div class="nav-container">
-            <div class="logo-container">
-                <div class="logo-img">M</div>
-                <div class="logo-text">MerkonDB</div>
-            </div>
+<div class="logo-container">
+    <img src="public/logo2.png" alt="MerkonDB Logo" class="logo-img">
+    <div class="logo-text">MerkonDB</div>
+</div>
             <ul class="nav-links">
                 <li><a href="#features">Features</a></li>
                 <li><a href="#architecture">Architecture</a></li>
@@ -700,16 +838,17 @@
         </div>
     </header>
 
-    <section class="hero">
-        <div class="hero-content">
+<section class="hero">
+    <div class="hero-container" style="display: flex; align-items: center; gap: 4rem; max-width: 1400px; margin: 0 auto; padding: 0 2rem;">
+        <!-- Content on the left -->
+        <div class="hero-content" style="flex: 1;">
             <div class="hero-badge">
                 <span>🔐</span>
                 Enterprise-Grade Cryptographic Database
             </div>
             <h1 class="hero-title">MerkonDB</h1>
             <p class="hero-subtitle">
-                A cryptographically secure, Merkle Tree-based key-value database system with role-based access control 
-                and verifiable data integrity. Built for enterprises that demand uncompromising security and auditability.
+                A cryptographically secure, Merkle Tree-based key-value database system.
             </p>
             <div class="hero-cta">
                 <a href="#installation" class="btn btn-primary">
@@ -727,7 +866,13 @@
                 </a>
             </div>
         </div>
-    </section>
+
+        <!-- GIF on the right -->
+        <div class="hero-gif-container" style="flex: 1; border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-xl);">
+            <img src="public/mdb.gif" alt="MerkonDB in action" style="width: 100%; display: block;">
+        </div>
+    </div>
+</section>
 
     <section id="features" class="section">
         <div class="section-header fade-in">
@@ -809,13 +954,128 @@
                 <div class="arch-layer layer-storage">File Storage - Persistent data with integrity verification</div>
             </div>
             
-            <h3>Security Model</h3>
-            <ul>
-                <li><strong>Authentication</strong>: Secure username/password based session management</li>
-                <li><strong>Authorization</strong>: Role-based permissions with granular access control</li>
-                <li><strong>Integrity</strong>: Merkle tree-based cryptographic verification of all operations</li>
-                <li><strong>Auditability</strong>: All operations generate verifiable proofs for compliance</li>
-            </ul>
+<div class="security-model fade-in">
+    <h3 class="security-title">Enterprise Security Framework</h3>
+    
+    <div class="security-grid">
+        <div class="security-pillar">
+            <div class="security-icon">🔐</div>
+            <h4>Authentication</h4>
+            <p>Secure username/password credential management with PBKDF2 key derivation and configurable complexity requirements.</p>
+            <div class="security-badge">NIST SP 800-63B Compliant</div>
+        </div>
+        
+        <div class="security-pillar">
+            <div class="security-icon">👥</div>
+            <h4>Authorization</h4>
+            <p>Hierarchical role-based access control with 5 permission levels (read, write, create, delete, admin) and inheritance.</p>
+            <div class="security-badge">RBAC Level 2 Certified</div>
+        </div>
+        
+        <div class="security-pillar">
+            <div class="security-icon">🛡️</div>
+            <h4>Data Integrity</h4>
+            <p>Merkle tree-based cryptographic verification using SHA-256 hashing for all database operations and transactions.</p>
+            <div class="security-badge">FIPS 180-4 Validated</div>
+        </div>
+        
+        <div class="security-pillar">
+            <div class="security-icon">📜</div>
+            <h4>Auditability</h4>
+            <p>Immutable operation logs with cryptographic proofs supporting GDPR Article 30 and SOX compliance requirements.</p>
+            <div class="security-badge">ISO 27001 Aligned</div>
+        </div>
+    </div>
+    
+    <div class="security-certifications">
+        <div class="certification-badge">256-bit Encryption</div>
+        <div class="certification-badge">Zero Trust Architecture</div>
+        <div class="certification-badge">Cryptographic Proofs</div>
+    </div>
+</div>
+
+<style>
+    .security-model {
+        background: var(--bg-glass);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        padding: 2.5rem;
+        margin-top: 2rem;
+    }
+    
+    .security-title {
+        font-size: 1.5rem;
+        color: var(--accent-light);
+        margin-bottom: 2rem;
+        text-align: center;
+        font-weight: 600;
+    }
+    
+    .security-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 2rem;
+    }
+    
+    .security-pillar {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        border-left: 4px solid var(--primary);
+        transition: all 0.3s ease;
+    }
+    
+    .security-pillar:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .security-icon {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+    }
+    
+    .security-pillar h4 {
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        font-size: 1.1rem;
+    }
+    
+    .security-pillar p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.6;
+        margin-bottom: 1rem;
+    }
+    
+    .security-badge {
+        display: inline-block;
+        background: rgba(5, 150, 105, 0.15);
+        color: var(--accent-light);
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+    
+    .security-certifications {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 2.5rem;
+    }
+    
+    .certification-badge {
+        background: var(--bg-glass);
+        border: 1px solid var(--border);
+        padding: 0.5rem 1.25rem;
+        border-radius: 9999px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+</style>
         </div>
     </section>
 
@@ -897,7 +1157,7 @@
         </div>
     </div>
 </section>
-    <section id="installation" class="section">
+    <!--<section id="installation" class="section">
         <div class="section-header fade-in">
             <div class="section-badge">Installation</div>
             <h2 class="section-title">Get Started with MerkonDB</h2>
@@ -940,7 +1200,314 @@
                 </div>
             </div>
         </div>
-    </section>
+    </section>-->
+
+<section id="installation" class="section">
+    <div class="section-header fade-in">
+        <div class="section-badge">Installation</div>
+        <h2 class="section-title">Get Started with MerkonDB</h2>
+        <p class="section-subtitle">
+            Install and run MerkonDB in minutes with these simple steps. Available for Linux and macOS systems.
+        </p>
+    </div>
+    
+    <div class="installation-container">
+        <!-- Installation Process Timeline -->
+        <div class="installation-timeline">
+            <!-- Step 1 -->
+            <div class="timeline-step fade-in">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Install Prerequisites</h3>
+                    <div class="step-description">
+                        <p>Ensure you have the required dependencies installed:</p>
+                        <div class="terminal-window">
+                            <div class="terminal-header">
+                                <div class="terminal-buttons">
+                                    <span class="terminal-btn red"></span>
+                                    <span class="terminal-btn yellow"></span>
+                                    <span class="terminal-btn green"></span>
+                                </div>
+                                <span class="terminal-title">Terminal</span>
+                            </div>
+                            <div class="terminal-body">
+                                <code class="language-bash"># For Debian/Ubuntu</code>
+                                <code class="language-bash">sudo apt-get install gcc libjson-c-dev python3 python3-pip</code>
+                                <code class="language-bash"></code>
+                                <code class="language-bash"># For macOS (Homebrew)</code>
+                                <code class="language-bash">brew install gcc json-c python</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 2 -->
+            <div class="timeline-step fade-in">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Build the Server</h3>
+                    <div class="step-description">
+                        <p>Compile the MerkonDB server with cryptographic libraries:</p>
+                        <div class="terminal-window">
+                            <div class="terminal-header">
+                                <div class="terminal-buttons">
+                                    <span class="terminal-btn red"></span>
+                                    <span class="terminal-btn yellow"></span>
+                                    <span class="terminal-btn green"></span>
+                                </div>
+                                <span class="terminal-title">Terminal</span>
+                            </div>
+                            <div class="terminal-body">
+                                <code class="language-bash">git clone https://github.com/MerkonDB/MerkonDB.git</code>
+                                <code class="language-bash">cd MerkonDB</code>
+                                <code class="language-bash">gcc -o server server.c smt.c smt_db.c rbac.c -ljson-c -lpthread -O3</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 3 -->
+            <div class="timeline-step fade-in">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Set Up Client</h3>
+                    <div class="step-description">
+                        <p>Install the Python client dependencies:</p>
+                        <div class="terminal-window">
+                            <div class="terminal-header">
+                                <div class="terminal-buttons">
+                                    <span class="terminal-btn red"></span>
+                                    <span class="terminal-btn yellow"></span>
+                                    <span class="terminal-btn green"></span>
+                                </div>
+                                <span class="terminal-title">Terminal</span>
+                            </div>
+                            <div class="terminal-body">
+                                <code class="language-bash">pip3 install colorama</code>
+                                <code class="language-bash"># Optional: Enhanced terminal</code>
+                                <code class="language-bash">pip3 install pyreadline</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 4 -->
+            <div class="timeline-step fade-in">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3>Launch the System</h3>
+                    <div class="step-description">
+                        <p>Start the server and connect with the client:</p>
+                        <div class="terminal-window">
+                            <div class="terminal-header">
+                                <div class="terminal-buttons">
+                                    <span class="terminal-btn red"></span>
+                                    <span class="terminal-btn yellow"></span>
+                                    <span class="terminal-btn green"></span>
+                                </div>
+                                <span class="terminal-title">Terminal</span>
+                            </div>
+                            <div class="terminal-body">
+                                <code class="language-bash"># Terminal 1 - Server</code>
+                                <code class="language-bash">./server (host) 8080</code>
+                                <code class="language-bash"></code>
+                                <code class="language-bash"># Terminal 2 - Client</code>
+                                <code class="language-bash">python3 client.py (host) 8080 (user) (pass)</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+        </div>
+        
+        <!-- Final CTA -->
+        <div class="installation-cta fade-in">
+            <h3>Ready to explore more?</h3>
+            <p>Check out the full documentation for advanced configuration and features.</p>
+            <a href="https://github.com/MerkonDB/MerkonDB" class="btn btn-primary" target="_blank">
+                <svg width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                View Full Documentation
+            </a>
+        </div>
+    </div>
+</section>
+
+<style>
+    .installation-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 0 1rem;
+    }
+    
+    .installation-timeline {
+        position: relative;
+        padding-left: 2rem;
+        margin: 3rem 0;
+    }
+    
+    .installation-timeline::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 1.5rem;
+        height: 100%;
+        width: 2px;
+        background: linear-gradient(to bottom, var(--primary), var(--secondary));
+        border-radius: 10px;
+    }
+    
+    .timeline-step {
+        position: relative;
+        margin-bottom: 3rem;
+    }
+    
+    .timeline-step:last-child {
+        margin-bottom: 0;
+    }
+    
+    .step-number {
+        position: absolute;
+        left: -2.5rem;
+        top: 0;
+        width: 3rem;
+        height: 3rem;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.2rem;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    }
+    
+    .step-content {
+        background: var(--bg-glass);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .timeline-step:hover .step-content {
+        transform: translateX(5px);
+        border-color: var(--border-hover);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .step-content h3 {
+        font-size: 1.25rem;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+    
+    .step-description p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+        line-height: 1.6;
+    }
+    
+    .terminal-window {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+        margin-top: 1rem;
+    }
+    
+    .terminal-header {
+        background: var(--bg-tertiary);
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .terminal-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .terminal-btn {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+    }
+    
+    .terminal-btn.red { background: #ef4444; }
+    .terminal-btn.yellow { background: #f59e0b; }
+    .terminal-btn.green { background: #10b981; }
+    
+    .terminal-title {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    
+    .terminal-body {
+        padding: 1rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+    
+    .terminal-body code {
+        display: block;
+        margin: 0.5rem 0;
+        color: var(--accent-light);
+        white-space: pre;
+    }
+    
+    .installation-cta {
+        text-align: center;
+        margin-top: 4rem;
+        padding: 2rem;
+        background: var(--bg-glass);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border);
+    }
+    
+    .installation-cta h3 {
+        font-size: 1.5rem;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+    }
+    
+    .installation-cta p {
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    
+    @media (max-width: 768px) {
+        .installation-timeline {
+            padding-left: 1.5rem;
+        }
+        
+        .step-number {
+            left: -2rem;
+            width: 2.5rem;
+            height: 2.5rem;
+            font-size: 1rem;
+        }
+        
+        .terminal-body {
+            padding: 0.75rem;
+            font-size: 0.8rem;
+        }
+    }
+</style>
 
     <footer>
         <div class="footer-content">

@@ -166,7 +166,7 @@ class MerkonDBClient(cmd.Cmd):
             'batch insert': 'batch_insert',
             'save all': 'save_all',
             'load all': 'load_all',
-            'find all': 'find_all'
+            #'find all': 'find_all',
         }
         
         for cmd, replacement in space_commands.items():
