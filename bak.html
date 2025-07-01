@@ -704,12 +704,11 @@
         <div class="hero-content">
             <div class="hero-badge">
                 <span>🔐</span>
-                Enterprise-Grade Cryptographic Database
+                Enterprise-Grade Security
             </div>
             <h1 class="hero-title">MerkonDB</h1>
             <p class="hero-subtitle">
-                A cryptographically secure, Merkle Tree-based key-value database system with role-based access control 
-                and verifiable data integrity. Built for enterprises that demand uncompromising security and auditability.
+                The world's first cryptographically secure database with verifiable data integrity using Merkle tree architecture. Built for enterprises that demand uncompromising security.
             </p>
             <div class="hero-cta">
                 <a href="#installation" class="btn btn-primary">
@@ -732,41 +731,36 @@
     <section id="features" class="section">
         <div class="section-header fade-in">
             <div class="section-badge">Features</div>
-            <h2 class="section-title">Enterprise-Grade Database Security</h2>
+            <h2 class="section-title">Unparalleled Security & Performance</h2>
             <p class="section-subtitle">
-                MerkonDB combines cryptographic security with high performance through its innovative PMAT architecture.
+                Built from the ground up with cryptographic verification at its core, MerkonDB provides enterprise-grade security without compromising on performance.
             </p>
         </div>
         <div class="features-grid">
             <div class="feature-card fade-in">
                 <div class="feature-icon">🔐</div>
-                <h3>Cryptographic Verification</h3>
-                <p>Every database operation generates cryptographic proofs using Merkle tree architecture, ensuring verifiable data integrity and authenticity.</p>
+                <h3>Cryptographic Integrity</h3>
+                <p>Every database operation is cryptographically verifiable using Merkle tree proofs, ensuring absolute data integrity and authenticity across all transactions.</p>
             </div>
             <div class="feature-card fade-in">
                 <div class="feature-icon">👥</div>
-                <h3>Fine-Grained RBAC</h3>
-                <p>Comprehensive role-based access control with permission bitmasks (read, write, create, delete, admin) and user hierarchies.</p>
+                <h3>Enterprise RBAC</h3>
+                <p>Sophisticated role-based access control with fine-grained permissions, user hierarchies, and audit trails for compliance and governance.</p>
             </div>
-            <div class="feature-card fade-in">
+                       <div class="feature-card fade-in">
                 <div class="feature-icon">⚡</div>
-                <h3>Optimized PMAT Structure</h3>
-                <p>Partitioned Merkle Array Tree delivers O(log k) search complexity and O(k) insert/delete operations while maintaining cryptographic proofs.</p>
+                <h3>High Performance</h3>
+                <p>Optimized PMAT architecture delivers O(log k) search complexity and O(k) insert/delete operations while maintaining cryptographic proofs.</p>
             </div>
             <div class="feature-card fade-in">
                 <div class="feature-icon">🔍</div>
-                <h3>Membership Proofs</h3>
-                <p>Generate and verify compact cryptographic inclusion proofs for any key-value pair in the database.</p>
+                <h3>Verifiable Proofs</h3>
+                <p>Generate and verify compact cryptographic proofs for any data operation, enabling trustless verification of database state and history.</p>
             </div>
             <div class="feature-card fade-in">
                 <div class="feature-icon">💾</div>
-                <h3>Multi-Database Support</h3>
-                <p>Organize data across multiple named databases with collections, each maintaining independent cryptographic integrity.</p>
-            </div>
-            <div class="feature-card fade-in">
-                <div class="feature-icon">📊</div>
-                <h3>Comprehensive Statistics</h3>
-                <p>Detailed metrics on database and collection usage with integrity verification capabilities.</p>
+                <h3>Persistent Storage</h3>
+                <p>Reliable save/load operations with integrity checks, compaction for optimization, and support for multiple named databases.</p>
             </div>
         </div>
 
@@ -777,15 +771,15 @@
             </div>
             <div class="stat-card fade-in">
                 <span class="stat-number">O(k)</span>
-                <span class="stat-label">Insert/Delete Operations</span>
+                <span class="stat-label">Insert/Delete</span>
             </div>
             <div class="stat-card fade-in">
-                <span class="stat-number">256-bit</span>
-                <span class="stat-label">Cryptographic Security</span>
+                <span class="stat-number">100%</span>
+                <span class="stat-label">Verifiable Operations</span>
             </div>
             <div class="stat-card fade-in">
-                <span class="stat-number">5</span>
-                <span class="stat-label">Permission Levels</span>
+                <span class="stat-number">∞</span>
+                <span class="stat-label">Databases Supported</span>
             </div>
         </div>
     </section>
@@ -793,110 +787,82 @@
     <section id="architecture" class="section">
         <div class="section-header fade-in">
             <div class="section-badge">Architecture</div>
-            <h2 class="section-title">Secure by Design</h2>
+            <h2 class="section-title">Designed for Security & Scale</h2>
             <p class="section-subtitle">
-                MerkonDB's architecture implements a multi-layered security approach with cryptographic verification at every level.
+                MerkonDB's innovative architecture combines cryptographic security with high performance through its patented PMAT structure.
             </p>
         </div>
         <div class="architecture-container fade-in">
-            <h3>Core Security Layers</h3>
+            <h3>Core Components</h3>
             <div class="arch-diagram">
-                <div class="arch-layer layer-client">Client Shell - Color-coded terminal interface with MQL support</div>
-                <div class="arch-layer layer-api">Socket API - JSON over TCP with encrypted communications</div>
-                <div class="arch-layer layer-auth">Authentication & RBAC - Username/password with role-based permissions</div>
-                <div class="arch-layer layer-engine">Database Engine - Query processing with integrity checks</div>
-                <div class="arch-layer layer-pmat">PMAT Structure - Partitioned Merkle Array Tree for cryptographic proofs</div>
-                <div class="arch-layer layer-storage">File Storage - Persistent data with integrity verification</div>
+                <div class="arch-layer layer-client">Client Shell (Interactive CLI with MQL support)</div>
+                <div class="arch-layer layer-api">Socket API (JSON over TCP)</div>
+                <div class="arch-layer layer-auth">Authentication & RBAC Module</div>
+                <div class="arch-layer layer-engine">Database Engine (Query Processing)</div>
+                <div class="arch-layer layer-pmat">PMAT Indexing Structure (Partitioned Merkle Array Tree)</div>
+                <div class="arch-layer layer-storage">File Storage (Persistent Data)</div>
             </div>
-            
-            <h3>Security Model</h3>
+            <h3>PMAT Structure</h3>
+            <p>The Partitioned Merkle Array Tree is the heart of MerkonDB, providing:</p>
             <ul>
-                <li><strong>Authentication</strong>: Secure username/password based session management</li>
-                <li><strong>Authorization</strong>: Role-based permissions with granular access control</li>
-                <li><strong>Integrity</strong>: Merkle tree-based cryptographic verification of all operations</li>
-                <li><strong>Auditability</strong>: All operations generate verifiable proofs for compliance</li>
+                <li>Efficient search with O(log k) complexity (k = n/partitions)</li>
+                <li>Fast modifications with O(k) insertion and deletion operations</li>
+                <li>Compact cryptographic proofs for any operation</li>
+                <li>Distributed-ready architecture for verifiable operations</li>
             </ul>
         </div>
     </section>
 
-<section id="commands" class="section">
-    <div class="section-header fade-in">
-        <div class="section-badge">Commands</div>
-        <h2 class="section-title">MerkonDB Query Language (MQL)</h2>
-        <p class="section-subtitle">
-            Comprehensive command set for complete database management with cryptographic verification.
-        </p>
-    </div>
-    <div class="commands-grid" style="grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, auto);">
-        <!-- Row 1 -->
-        <div class="command-category fade-in">
-            <h3>Database Operations</h3>
-            <div class="command-list">
-                <div class="command-item">use &lt;db_name&gt;</div>
-                <div class="command-item">create database &lt;name&gt;</div>
-                <div class="command-item">open &lt;db_name&gt;</div>
-                <div class="command-item">close &lt;db_name&gt;</div>
-                <div class="command-item">drop database &lt;name&gt;</div>
-                <div class="command-item">exists database &lt;name&gt;</div>
-                <div class="command-item">list databases</div>
-                <div class="command-item">stats [&lt;db_name&gt;]</div>
+    <section id="commands" class="section">
+        <div class="section-header fade-in">
+            <div class="section-badge">Commands</div>
+            <h2 class="section-title">MQL Command Reference</h2>
+            <p class="section-subtitle">
+                MerkonDB Query Language (MQL) provides intuitive commands for all database operations.
+            </p>
+        </div>
+        <div class="commands-grid">
+            <div class="command-category fade-in">
+                <h3>Database Operations</h3>
+                <div class="command-list">
+                    <div class="command-item">list databases</div>
+                    <div class="command-item">create database &lt;name&gt;</div>
+                    <div class="command-item">exists database &lt;name&gt;</div>
+                    <div class="command-item">open &lt;name&gt;</div>
+                    <div class="command-item">use &lt;name&gt;</div>
+                    <div class="command-item">drop database &lt;name&gt;</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Collection Operations</h3>
+                <div class="command-list">
+                    <div class="command-item">create collection &lt;name&gt;</div>
+                    <div class="command-item">list collections</div>
+                    <div class="command-item">exists collection &lt;name&gt;</div>
+                    <div class="command-item">drop collection &lt;name&gt;</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Data Operations</h3>
+                <div class="command-list">
+                    <div class="command-item">insert &lt;collection&gt; &lt;key&gt; &lt;value&gt;</div>
+                    <div class="command-item">find &lt;collection&gt; &lt;key&gt;</div>
+                    <div class="command-item">update &lt;collection&gt; &lt;key&gt; &lt;new_value&gt;</div>
+                    <div class="command-item">delete &lt;collection&gt; &lt;key&gt;</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Merkle Proofs</h3>
+                <div class="command-list">
+                    <div class="command-item">generate proof &lt;collection&gt; &lt;key&gt;</div>
+                    <div class="command-item">root hash &lt;collection&gt;</div>
+                    <div class="command-item">verify proof &lt;collection&gt; &lt;key&gt; &lt;value&gt; &lt;proof&gt;</div>
+                    <div class="command-item">verify integrity</div>
+                </div>
             </div>
         </div>
-        <div class="command-category fade-in">
-            <h3>Collection Operations</h3>
-            <div class="command-list">
-                <div class="command-item">create collection &lt;name&gt;</div>
-                <div class="command-item">drop collection &lt;name&gt;</div>
-                <div class="command-item">exists collection &lt;name&gt;</div>
-                <div class="command-item">list collections</div>
-            </div>
-        </div>
-        
-        <!-- Row 2 (Middle) - System goes here -->
-        <div class="command-category fade-in">
-            <h3>System Commands</h3>
-            <div class="command-list">
-                <div class="command-item">compact [&lt;db_name&gt;]</div>
-                <div class="command-item">help</div>
-                <div class="command-item">help &lt;command&gt;</div>
-                <div class="command-item">exit/quit</div>
-            </div>
-        </div>
-        <div class="command-category fade-in">
-            <h3>Data Operations</h3>
-            <div class="command-list">
-                <div class="command-item">insert &lt;col&gt; &lt;key&gt; &lt;val&gt;</div>
-                <div class="command-item">find &lt;col&gt; &lt;key&gt;</div>
-                <div class="command-item">find all &lt;col&gt;</div>
-                <div class="command-item">update &lt;col&gt; &lt;key&gt; &lt;val&gt;</div>
-                <div class="command-item">delete &lt;col&gt; &lt;key&gt;</div>
-                <div class="command-item">batch insert &lt;col&gt; &lt;k=v&gt;...</div>
-            </div>
-        </div>
-        
-        <!-- Row 3 -->
-        <div class="command-category fade-in">
-            <h3>Integrity Verification</h3>
-            <div class="command-list">
-                <div class="command-item">root &lt;collection&gt;</div>
-                <div class="command-item">proof &lt;col&gt; &lt;key&gt;</div>
-                <div class="command-item">verify &lt;col&gt; &lt;k&gt; &lt;v&gt; &lt;proof&gt;</div>
-                <div class="command-item">verify integrity [&lt;db&gt;]</div>
-            </div>
-        </div>
-        <div class="command-category fade-in">
-            <h3>Access Control</h3>
-            <div class="command-list">
-                <div class="command-item">add user &lt;name&gt; &lt;pass&gt;</div>
-                <div class="command-item">remove user &lt;name&gt;</div>
-                <div class="command-item">add role &lt;name&gt; &lt;perms&gt;</div>
-                <div class="command-item">remove role &lt;name&gt;</div>
-                <div class="command-item">assign role &lt;user&gt; &lt;role&gt;</div>
-                <div class="command-item">revoke role &lt;user&gt; &lt;role&gt;</div>
-            </div>
-        </div>
-    </div>
-</section>
+    </section>
+
     <section id="installation" class="section">
         <div class="section-header fade-in">
             <div class="section-badge">Installation</div>

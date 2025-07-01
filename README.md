@@ -86,7 +86,7 @@ pip3 install colorama
 
 ### Start Server
 ```bash
-./server <port>
+./server <localhost> <port>
 ```
 
 ### Connect Client
