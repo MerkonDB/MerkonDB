@@ -812,26 +812,53 @@ static void* client_handler(void* arg) {
             json_object_set_new(response, "error_message", json_string("Unknown operation"));
         }
 
-        char* resp_str = json_dumps(response, JSON_COMPACT);
-        if (resp_str) {
-            printf("[%s] [DEBUG] Response to %s: %.*s\n", 
-                   timestamp, client_ip,
-                   (int)strnlen(resp_str, 256), resp_str);
-            
-            if (write_message(client_fd, resp_str) != 0) {
-                printf("[%s] [ERROR] Failed to send response to %s\n", timestamp, client_ip);
-                free(resp_str);
-                json_decref(response);
-                json_decref(root);
-                break;
-            }
-            free(resp_str);
-        } else {
-            printf("[%s] [ERROR] Failed to serialize response\n", timestamp);
-        }
-        
+time_t now;
+char timestamp[32];
+time(&now);
+strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+printf("[%s] [DEBUG] Preparing response for operation '%s'\n", timestamp, operation);
+char* resp_str = json_dumps(response, JSON_COMPACT);
+if (resp_str) {
+    printf("[%s] [DEBUG] Response to %s: %.*s\n", 
+           timestamp, client_ip,
+           (int)strnlen(resp_str, 256), resp_str);
+    if (write_message(client_fd, resp_str) != 0) {
+        printf("[%s] [ERROR] Failed to send response to %s for operation '%s'\n", 
+               timestamp, client_ip, operation);
+        free(resp_str);
         json_decref(response);
         json_decref(root);
+        break;
+    }
+    free(resp_str);
+} else {
+    printf("[%s] [ERROR] Failed to serialize response for operation '%s'\n", timestamp, operation);
+    const char* fallback = "{\"status\":\"error\",\"error_message\":\"Server failed to serialize response\"}";
+    printf("[%s] [DEBUG] Fallback response to %s: %s\n", timestamp, client_ip, fallback);
+    if (write_message(client_fd, fallback) != 0) {
+        printf("[%s] [ERROR] Failed to send fallback response to %s for operation '%s'\n", 
+               timestamp, client_ip, operation);
+        json_decref(response);
+        json_decref(root);
+        break;
+    }
+}
+
+// Persist RBAC state after successful RBAC operations
+if (strncmp(operation, "rbac_", 5) == 0 && strcmp(json_string_value(json_object_get(response, "status")), "success") == 0) {
+    printf("[%s] [DEBUG] Saving RBAC state after %s\n", timestamp, operation);
+    char rbac_path[1024];
+    snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
+    if (rbac_save(&g_rbac, rbac_path) != 0) {
+        printf("[%s] [WARNING] Failed to save RBAC state after %s\n", timestamp, operation);
+    } else {
+        printf("[%s] [DEBUG] RBAC state saved successfully\n", timestamp);
+    }
+}
+
+json_decref(response);
+json_decref(root);
     }
 
     // Cleanup

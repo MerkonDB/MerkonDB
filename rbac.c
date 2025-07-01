@@ -1,4 +1,4 @@
-// rbac.c
+// rbac.c - Fixed version
 #include "rbac.h"
 #include <string.h>
 #include <stdlib.h>
@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 static void hash_password(const char* password, char* output) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -23,8 +24,17 @@ static void hash_password(const char* password, char* output) {
 }
 
 int rbac_init(RBACSystem* rbac) {
-    if (!rbac) return -1;
+    time_t now;
+    char timestamp[32];
+    time(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
+    if (!rbac) {
+        printf("[%s] [ERROR] rbac_init: NULL rbac pointer\n", timestamp);
+        return -1;
+    }
+
+    printf("[%s] [DEBUG] rbac_init: Initializing RBAC system\n", timestamp);
     memset(rbac, 0, sizeof(RBACSystem));
     
     int ret;
@@ -33,16 +43,24 @@ int rbac_init(RBACSystem* rbac) {
     pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
     
     if ((ret = pthread_rwlock_init(&rbac->lock, &attr)) != 0) {
-        fprintf(stderr, "pthread_rwlock_init failed: %s\n", strerror(ret));
+        printf("[%s] [ERROR] rbac_init: pthread_rwlock_init failed: %s\n", timestamp, strerror(ret));
         pthread_rwlockattr_destroy(&attr);
         return -1;
     }
     pthread_rwlockattr_destroy(&attr);
 
-    rbac->is_initialized = true; // Move this before rbac_add_role
+    rbac->is_initialized = true;
+    printf("[%s] [DEBUG] rbac_init: Lock initialized, is_initialized set to true\n", timestamp);
 
-    // Add default admin role
-    if (rbac_add_role(rbac, "admin", PERM_ALL) != 0) {
+    // Add admin role without using the lock (we're in init, no contention possible)
+    if (rbac->role_count < MAX_ROLES) {
+        Role* role = &rbac->roles[rbac->role_count++];
+        strncpy(role->name, "admin", MAX_ROLE_LEN - 1);
+        role->name[MAX_ROLE_LEN - 1] = '\0';
+        role->permissions = PERM_ALL;
+        printf("[%s] [DEBUG] rbac_init: Admin role added successfully\n", timestamp);
+    } else {
+        printf("[%s] [ERROR] rbac_init: Failed to add admin role - no space\n", timestamp);
         pthread_rwlock_destroy(&rbac->lock);
         return -1;
     }
@@ -57,39 +75,98 @@ void rbac_cleanup(RBACSystem* rbac) {
 }
 
 int rbac_add_user(RBACSystem* rbac, const char* username, const char* password) {
-    if (!rbac || !rbac->is_initialized || !username || !password) return -1;
-    if (strlen(username) >= MAX_USERNAME_LEN || strlen(password) >= MAX_PASSWORD_LEN) return -1;
+    time_t now;
+    char timestamp[32];
+    time(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    if (!rbac || !rbac->is_initialized || !username || !password) {
+        printf("[%s] [ERROR] rbac_add_user: Invalid input parameters\n", timestamp);
+        return -1;
+    }
 
+    printf("[%s] [DEBUG] rbac_add_user: Adding user '%s'\n", timestamp, username);
+
+    if (strlen(username) >= MAX_USERNAME_LEN || strlen(password) >= MAX_PASSWORD_LEN) {
+        printf("[%s] [ERROR] rbac_add_user: Username or password too long\n", timestamp);
+        return -1;
+    }
+
+    // Use a more robust timeout mechanism
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        // Fallback to CLOCK_REALTIME if MONOTONIC is not available
+        if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+            printf("[%s] [ERROR] rbac_add_user: Failed to get current time: %s\n", 
+                   timestamp, strerror(errno));
+            return -1;
+        }
+    }
+    ts.tv_sec += 10; // Increased timeout to 10 seconds
+
+    printf("[%s] [DEBUG] rbac_add_user: Attempting to acquire write lock\n", timestamp);
+    int ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+    if (ret != 0) {
+        printf("[%s] [ERROR] rbac_add_user: Failed to acquire write lock for user '%s': %s (errno: %d)\n", 
+               timestamp, username, strerror(ret), ret);
+        
+        // Try non-blocking approach as fallback
+        ret = pthread_rwlock_trywrlock(&rbac->lock);
+        if (ret != 0) {
+            printf("[%s] [ERROR] rbac_add_user: Non-blocking lock also failed: %s\n", 
+                   timestamp, strerror(ret));
+            return -1;
+        }
+        printf("[%s] [DEBUG] rbac_add_user: Acquired lock via non-blocking fallback\n", timestamp);
+    } else {
+        printf("[%s] [DEBUG] rbac_add_user: Write lock acquired successfully\n", timestamp);
+    }
+
+    // Check limits
     if (rbac->user_count >= MAX_USERS) {
+        printf("[%s] [ERROR] rbac_add_user: Maximum user limit reached\n", timestamp);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
     }
 
-    // Check if user exists
+    // Check for existing user
     for (int i = 0; i < rbac->user_count; i++) {
         if (strcmp(rbac->users[i].username, username) == 0) {
+            printf("[%s] [ERROR] rbac_add_user: User '%s' already exists\n", timestamp, username);
             pthread_rwlock_unlock(&rbac->lock);
             return -1;
         }
     }
 
-    // Add new user
+    // Add the user
+    printf("[%s] [DEBUG] rbac_add_user: Adding new user at index %d\n", timestamp, rbac->user_count);
     User* user = &rbac->users[rbac->user_count++];
     strncpy(user->username, username, MAX_USERNAME_LEN - 1);
     user->username[MAX_USERNAME_LEN - 1] = '\0';
+    printf("[%s] [DEBUG] rbac_add_user: Username copied: %s\n", timestamp, user->username);
+    
     hash_password(password, user->password_hash);
+    printf("[%s] [DEBUG] rbac_add_user: Password hashed\n", timestamp);
     user->role_count = 0;
 
+    printf("[%s] [DEBUG] rbac_add_user: Releasing lock\n", timestamp);
     pthread_rwlock_unlock(&rbac->lock);
+    printf("[%s] [DEBUG] rbac_add_user: User '%s' added successfully\n", timestamp, username);
     return 0;
 }
 
 int rbac_remove_user(RBACSystem* rbac, const char* username) {
     if (!rbac || !rbac->is_initialized || !username) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        // If try fails, use timeout
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     for (int i = 0; i < rbac->user_count; i++) {
         if (strcmp(rbac->users[i].username, username) == 0) {
@@ -110,7 +187,15 @@ int rbac_remove_user(RBACSystem* rbac, const char* username) {
 int rbac_authenticate_user(RBACSystem* rbac, const char* username, const char* password) {
     if (!rbac || !rbac->is_initialized || !username || !password) return -1;
 
-    pthread_rwlock_rdlock(&rbac->lock);
+    int ret = pthread_rwlock_tryrdlock(&rbac->lock);
+    if (ret != 0) {
+        // If try fails, use timeout
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedrdlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     char hashed_password[MAX_PASSWORD_LEN];
     hash_password(password, hashed_password);
@@ -133,7 +218,14 @@ int rbac_add_role(RBACSystem* rbac, const char* role_name, int permissions) {
     if (!rbac || !rbac->is_initialized || !role_name) return -1;
     if (strlen(role_name) >= MAX_ROLE_LEN) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     if (rbac->role_count >= MAX_ROLES) {
         pthread_rwlock_unlock(&rbac->lock);
@@ -161,7 +253,14 @@ int rbac_add_role(RBACSystem* rbac, const char* role_name, int permissions) {
 int rbac_remove_role(RBACSystem* rbac, const char* role_name) {
     if (!rbac || !rbac->is_initialized || !role_name) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     for (int i = 0; i < rbac->role_count; i++) {
         if (strcmp(rbac->roles[i].name, role_name) == 0) {
@@ -194,7 +293,14 @@ int rbac_remove_role(RBACSystem* rbac, const char* role_name) {
 int rbac_assign_role(RBACSystem* rbac, const char* username, const char* role_name) {
     if (!rbac || !rbac->is_initialized || !username || !role_name) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     // Find user
     User* user = NULL;
@@ -246,7 +352,14 @@ int rbac_assign_role(RBACSystem* rbac, const char* username, const char* role_na
 int rbac_revoke_role(RBACSystem* rbac, const char* username, const char* role_name) {
     if (!rbac || !rbac->is_initialized || !username || !role_name) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) return -1;
+    }
 
     // Find user
     User* user = NULL;
@@ -281,7 +394,14 @@ int rbac_revoke_role(RBACSystem* rbac, const char* username, const char* role_na
 bool rbac_has_permission(RBACSystem* rbac, const char* username, int permission) {
     if (!rbac || !rbac->is_initialized || !username) return false;
 
-    pthread_rwlock_rdlock(&rbac->lock);
+    int ret = pthread_rwlock_tryrdlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedrdlock(&rbac->lock, &ts);
+        if (ret != 0) return false;
+    }
 
     // Find user
     User* user = NULL;
@@ -320,12 +440,36 @@ bool rbac_has_db_permission(RBACSystem* rbac, const char* username, const char* 
 }
 
 int rbac_save(RBACSystem* rbac, const char* path) {
-    if (!rbac || !rbac->is_initialized || !path) return -1;
+    time_t now;
+    char timestamp[32];
+    time(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-    pthread_rwlock_rdlock(&rbac->lock);
+    if (!rbac || !rbac->is_initialized || !path) {
+        printf("[%s] [ERROR] rbac_save: Invalid input parameters\n", timestamp);
+        return -1;
+    }
+
+    printf("[%s] [DEBUG] rbac_save: Attempting to acquire write lock for saving to %s\n", timestamp, path);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+            printf("[%s] [ERROR] rbac_save: Failed to get current time: %s\n", timestamp, strerror(errno));
+            return -1;
+        }
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) {
+            printf("[%s] [ERROR] rbac_save: Failed to acquire write lock: %s\n", timestamp, strerror(ret));
+            return -1;
+        }
+    }
+    printf("[%s] [DEBUG] rbac_save: Write lock acquired\n", timestamp);
 
     json_t* root = json_object();
     if (!root) {
+        printf("[%s] [ERROR] rbac_save: Failed to create JSON object\n", timestamp);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
     }
@@ -359,6 +503,7 @@ int rbac_save(RBACSystem* rbac, const char* path) {
     json_decref(root);
 
     if (!json_str) {
+        printf("[%s] [ERROR] rbac_save: Failed to serialize JSON\n", timestamp);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
     }
@@ -369,6 +514,7 @@ int rbac_save(RBACSystem* rbac, const char* path) {
 
     int fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd == -1) {
+        printf("[%s] [ERROR] rbac_save: Failed to open temp file %s: %s\n", timestamp, temp_path, strerror(errno));
         free(json_str);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
@@ -379,6 +525,7 @@ int rbac_save(RBACSystem* rbac, const char* path) {
     close(fd);
 
     if (written == -1) {
+        printf("[%s] [ERROR] rbac_save: Failed to write to temp file %s: %s\n", timestamp, temp_path, strerror(errno));
         unlink(temp_path);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
@@ -386,11 +533,13 @@ int rbac_save(RBACSystem* rbac, const char* path) {
 
     // Atomic rename
     if (rename(temp_path, path) == -1) {
+        printf("[%s] [ERROR] rbac_save: Failed to rename %s to %s: %s\n", timestamp, temp_path, path, strerror(errno));
         unlink(temp_path);
         pthread_rwlock_unlock(&rbac->lock);
         return -1;
     }
 
+    printf("[%s] [DEBUG] rbac_save: Successfully saved RBAC state to %s\n", timestamp, path);
     pthread_rwlock_unlock(&rbac->lock);
     return 0;
 }
@@ -427,7 +576,17 @@ int rbac_load(RBACSystem* rbac, const char* path) {
 
     if (!root) return -1;
 
-    pthread_rwlock_wrlock(&rbac->lock);
+    int ret = pthread_rwlock_trywrlock(&rbac->lock);
+    if (ret != 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        ret = pthread_rwlock_timedwrlock(&rbac->lock, &ts);
+        if (ret != 0) {
+            json_decref(root);
+            return -1;
+        }
+    }
 
     // Clear existing data
     rbac->user_count = 0;
@@ -442,7 +601,10 @@ int rbac_load(RBACSystem* rbac, const char* path) {
             const char* name = json_string_value(json_object_get(role, "name"));
             int permissions = json_integer_value(json_object_get(role, "permissions"));
             if (name && rbac->role_count < MAX_ROLES) {
-                rbac_add_role(rbac, name, permissions);
+                Role* new_role = &rbac->roles[rbac->role_count++];
+                strncpy(new_role->name, name, MAX_ROLE_LEN - 1);
+                new_role->name[MAX_ROLE_LEN - 1] = '\0';
+                new_role->permissions = permissions;
             }
         }
     }

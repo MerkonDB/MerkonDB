@@ -54,7 +54,7 @@ class MerkonDBClient(cmd.Cmd):
             
             response = self.sock.recv(response_length).decode('utf-8')
             resp_json = json.loads(response)
-            print("Auth response:", resp_json)
+            #print("Auth response:", resp_json)
             
             if resp_json.get("status") != "success":
                 print(f"{Fore.RED}✗ Authentication failed: {resp_json.get('error_message', 'Unknown error')}{Style.RESET_ALL}")
@@ -581,9 +581,8 @@ if __name__ == '__main__':
     
     try:
         client = MerkonDBClient(host, port, username, password)
-        # Add this line to ensure proper prompt display:
         client.prompt = f"{Fore.CYAN}(mdb){Style.RESET_ALL} "
-        client.cmdloop(intro='' if client.intro else None)
+        client.cmdloop()  # Changed to use default intro
     except Exception as e:
         print(f"{Fore.RED}✗ Error in cmdloop: {e}{Style.RESET_ALL}")
         sys.exit(1)
