@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MerkonDB - Cryptographically Secure Database</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --secondary: #8b5cf6;
+            --accent: #10b981;
+            --bg-dark: #0f172a;
+            --bg-darker: #020617;
+            --text-light: #f8fafc;
+            --text-gray: #94a3b8;
+            --glass: rgba(255, 255, 255, 0.1);
+            --glow: 0 0 40px rgba(14, 165, 233, 0.3);
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-light);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(45deg, var(--bg-darker), var(--bg-dark));
+        }
+
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+            animation: pulse 4s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.3; }
+            100% { opacity: 0.6; }
+        }
+
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            color: var(--text-light);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary);
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 2rem;
+            position: relative;
+        }
+
+        .hero-content h1 {
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.5)); }
+            to { filter: drop-shadow(0 0 40px rgba(139, 92, 246, 0.7)); }
+        }
+
+        .hero-content p {
+            font-size: 1.5rem;
+            color: var(--text-gray);
+            margin-bottom: 2rem;
+            max-width: 600px;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: var(--glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 60px rgba(14, 165, 233, 0.5);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-light);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* Features Section */
+        .section {
+            padding: 4rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 3rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .feature-card:hover::before {
+            opacity: 0.1;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--primary);
+            position: relative;
+            z-index: 1;
+        }
+
+        .feature-card p {
+            color: var(--text-gray);
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Architecture Section */
+        .architecture {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 20px;
+            padding: 3rem;
+            margin: 4rem 0;
+        }
+
+        .arch-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 2rem;
+            margin: 2rem 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .arch-layer {
+            margin: 1rem 0;
+            padding: 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .arch-layer:hover {
+            transform: translateX(10px);
+        }
+
+        .layer-client { background: rgba(30, 64, 175, 0.3); }
+        .layer-api { background: rgba(180, 83, 9, 0.3); }
+        .layer-auth { background: rgba(124, 45, 18, 0.3); }
+        .layer-engine { background: rgba(3, 105, 161, 0.3); }
+        .layer-pmat { background: rgba(21, 128, 61, 0.3); }
+        .layer-storage { background: rgba(161, 98, 7, 0.3); }
+
+        /* Commands Section */
+        .commands-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .command-category {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .command-category h3 {
+            color: var(--accent);
+            margin-bottom: 1rem;
+            font-size: 1.3rem;
+        }
+
+        .command-list {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .command-item {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            border-left: 3px solid var(--primary);
+        }
+
+        /* Performance Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--accent);
+            display: block;
+        }
+
+        .stat-label {
+            color: var(--text-gray);
+            margin-top: 0.5rem;
+        }
+
+        /* Installation Section */
+        .code-block {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            font-family: 'Courier New', monospace;
+            border-left: 4px solid var(--primary);
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            color: var(--accent);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--bg-darker);
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .commands-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scroll animations */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    
+    <header>
+        <nav>
+            <div class="logo">MerkonDB</div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#architecture">Architecture</a></li>
+                <li><a href="#commands">Commands</a></li>
+                <li><a href="#installation">Installation</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <div class="hero-content">
+            <h1>MerkonDB</h1>
+            <p>Cryptographically Secure, Merkle Tree-Based Database with Verifiable Data Integrity</p>
+            <div class="cta-buttons">
+                <a href="#installation" class="btn btn-primary">Get Started</a>
+                <a href="#architecture" class="btn btn-secondary">Learn More</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="section">
+        <h2 class="section-title fade-in">Key Features</h2>
+        <div class="features-grid">
+            <div class="feature-card fade-in">
+                <h3>🔐 Cryptographic Integrity</h3>
+                <p>Every operation is cryptographically verifiable using Merkle tree proofs, ensuring data integrity and authenticity.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <h3>👥 Role-Based Access Control</h3>
+                <p>Fine-grained permission management with user roles and granular access controls for enterprise security.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <h3>📊 PMAT Architecture</h3>
+                <p>Partitioned Merkle Array Tree provides O(log k) search complexity with efficient modification operations.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <h3>🔍 Membership Proofs</h3>
+                <p>Generate and verify compact inclusion proofs for any key, enabling distributed verification.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <h3>💻 Interactive CLI</h3>
+                <p>Color-coded terminal interface with MQL (MerkonDB Query Language) for intuitive database management.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <h3>🗄️ Multi-Database Support</h3>
+                <p>Organize data across multiple named databases and collections with efficient storage management.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="architecture" class="section">
+        <h2 class="section-title fade-in">Architecture Overview</h2>
+        <div class="architecture fade-in">
+            <p>MerkonDB implements a layered architecture combining security, performance, and usability:</p>
+            <div class="arch-diagram">
+                <div class="arch-layer layer-client">📱 Client Shell (client.py) - Interactive Terminal Interface</div>
+                <div class="arch-layer layer-api">🔌 Socket API - JSON over TCP Communication</div>
+                <div class="arch-layer layer-auth">🔐 Authentication & RBAC - User Management & Permissions</div>
+                <div class="arch-layer layer-engine">⚙️ Database Engine - Core Operations & Request Processing</div>
+                <div class="arch-layer layer-pmat">🌳 PMAT Structure - Partitioned Merkle Array Tree</div>
+                <div class="arch-layer layer-storage">💾 File Storage - Persistent Data Management</div>
+            </div>
+        </div>
+
+        <div class="stats-grid fade-in">
+            <div class="stat-card">
+                <span class="stat-number">O(log k)</span>
+                <div class="stat-label">Search Complexity</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">O(k)</span>
+                <div class="stat-label">Modification Speed</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">100%</span>
+                <div class="stat-label">Verifiable Operations</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">∞</span>
+                <div class="stat-label">Concurrent Clients</div>
+            </div>
+        </div>
+    </section>
+
+    <section id="commands" class="section">
+        <h2 class="section-title fade-in">MQL Commands</h2>
+        <div class="commands-grid">
+            <div class="command-category fade-in">
+                <h3>Database Operations</h3>
+                <div class="command-list">
+                    <div class="command-item">create database &lt;name&gt;</div>
+                    <div class="command-item">list databases</div>
+                    <div class="command-item">use &lt;database&gt;</div>
+                    <div class="command-item">drop database &lt;name&gt;</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Data Operations</h3>
+                <div class="command-list">
+                    <div class="command-item">insert &lt;collection&gt; &lt;key&gt; &lt;value&gt;</div>
+                    <div class="command-item">find &lt;collection&gt; &lt;key&gt;</div>
+                    <div class="command-item">update &lt;collection&gt; &lt;key&gt; &lt;value&gt;</div>
+                    <div class="command-item">delete &lt;collection&gt; &lt;key&gt;</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Merkle Proofs</h3>
+                <div class="command-list">
+                    <div class="command-item">generate proof &lt;collection&gt; &lt;key&gt;</div>
+                    <div class="command-item">verify proof &lt;collection&gt; &lt;key&gt; &lt;value&gt; &lt;proof&gt;</div>
+                    <div class="command-item">root hash &lt;collection&gt;</div>
+                    <div class="command-item">verify integrity</div>
+                </div>
+            </div>
+            <div class="command-category fade-in">
+                <h3>Access Control</h3>
+                <div class="command-list">
+                    <div class="command-item">adduser &lt;username&gt; &lt;password&gt;</div>
+                    <div class="command-item">createrole &lt;rolename&gt;</div>
+                    <div class="command-item">grant &lt;role&gt; &lt;permissions&gt;</div>
+                    <div class="command-item">assignrole &lt;user&gt; &lt;role&gt;</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="installation" class="section">
+        <h2 class="section-title fade-in">Quick Start</h2>
+        <div class="fade-in">
+            <h3>Prerequisites</h3>
+            <div class="code-block">
+                <code>GCC compiler, json-c library, pthread library, Python 3 with colorama</code>
+            </div>
+
+            <h3>Build Server</h3>
+            <div class="code-block">
+                <code>gcc -o server server.c smt.c smt_db.c rbac.c -ljson-c -lpthread</code>
+            </div>
+
+            <h3>Install Client Dependencies</h3>
+            <div class="code-block">
+                <code>pip3 install colorama</code>
+            </div>
+
+            <h3>Start Server</h3>
+            <div class="code-block">
+                <code>./server &lt;port&gt;</code>
+            </div>
+
+            <h3>Connect Client</h3>
+            <div class="code-block">
+                <code>python3 client.py &lt;host&gt; &lt;port&gt; &lt;username&gt; &lt;password&gt;</code>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <p>&copy; 2025 MerkonDB. A cryptographically secure database system.</p>
+            <p>Built with PMAT architecture for verifiable data integrity.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Fade in animation on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.fade-in').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Navbar background on scroll
+        window.addEventListener('scroll', () => {
+            const header = document.querySelector('header');
+            if (window.scrollY > 100) {
+                header.style.background = 'rgba(15, 23, 42, 0.95)';
+            } else {
+                header.style.background = 'rgba(15, 23, 42, 0.8)';
+            }
+        });
+
+        // Parallax effect for hero section
+        window.addEventListener('scroll', () => {
+            const scrolled = window.pageYOffset;
+            const hero = document.querySelector('.hero');
+            if (hero) {
+                hero.style.transform = `translateY(${scrolled * 0.5}px)`;
+            }
+        });
+
+        // Dynamic stats animation
+        const animateStats = () => {
+            const statNumbers = document.querySelectorAll('.stat-number');
+            statNumbers.forEach(stat => {
+                if (stat.textContent !== '∞' && stat.textContent !== '100%') {
+                    const complexity = stat.textContent;
+                    stat.style.color = `hsl(${Math.random() * 60 + 120}, 70%, 60%)`;
+                }
+            });
+        };
+
+        setInterval(animateStats, 3000);
+
+        // Interactive feature cards
+        document.querySelectorAll('.feature-card').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-5px) scale(1.02)';
+                this.style.boxShadow = '0 25px 50px rgba(14, 165, 233, 0.2)';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0) scale(1)';
+                this.style.boxShadow = '0 20px 40px rgba(0, 0, 0, 0.3)';
+            });
+        });
+
+        // Command category hover effects
+        document.querySelectorAll('.command-category').forEach(category => {
+            category.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.02)';
+                this.style.boxShadow = '0 15px 30px rgba(16, 185, 129, 0.2)';
+            });
+            
+            category.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = 'none';
+            });
+        });
+    </script>
+</body>
+</html>
