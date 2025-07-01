@@ -16,20 +16,17 @@ MerkonDB is a modern database system that combines the security of cryptographic
 
 ```mermaid
 graph TD
-    A[Client Shell<br/>(client.py)] -->|JSON over TCP| B[Socket API<br/>(TCP)]
-
-    B --> C1[Authentication & RBAC<br/>(rbac.c)]
-    B --> C2[Database Engine<br/>(smt.c + smt_db.c)]
-
-    C2 --> D[PMAT Indexing Structure<br/>(Partitioned Merkle Array Tree)]
+    A[Client Shell] -->|JSON over TCP| B[Socket API-TCP]
+    B --> C1[Authentication & RBAC]
+    B --> C2[Database Engine]
+    C2 --> D[PMAT Indexing Structure-Partitioned Merkle Array Tree]
     C2 --> E[File Storage]
-
-    style A fill:#d1ecf1,stroke:#31708f
-    style B fill:#fef3c7,stroke:#b45309
-    style C1 fill:#f3e8ff,stroke:#7e22ce
-    style C2 fill:#e0f2fe,stroke:#0369a1
-    style D fill:#ecfccb,stroke:#15803d
-    style E fill:#fef9c3,stroke:#ca8a04
+    style A fill:#1e40af,stroke:#1e3a8a,color:#ffffff
+    style B fill:#b45309,stroke:#92400e,color:#ffffff
+    style C1 fill:#7c2d12,stroke:#6b21a8,color:#ffffff
+    style C2 fill:#0369a1,stroke:#0c4a6e,color:#ffffff
+    style D fill:#15803d,stroke:#14532d,color:#ffffff
+    style E fill:#a16207,stroke:#854d0e,color:#ffffff
 ```
 
 ## PMAT (Partitioned Merkle Array Tree)
@@ -89,7 +86,7 @@ pip3 install colorama
 
 ### Start Server
 ```bash
-./server <host> <port>
+./server <port>
 ```
 
 ### Connect Client
@@ -97,49 +94,44 @@ pip3 install colorama
 python3 client.py <host> <port> <username> <password>
 ```
 
-## MQL Commands
+## MQL Commands Reference
 
-### Database Operations
-```sql
--- Switch to database
-use testdb
+| Category | Command | Syntax | Description |
+|----------|---------|--------|-------------|
+| **Database Operations** | List databases | `list databases` | Show all existing databases |
+| | Create database | `create database <name>` | Create a new database |
+| | Check database exists | `exists database <name>` | Check if database exists |
+| | Open database | `open <name>` | Open a database |
+| | Close database | `close <name>` | Close a database |
+| | Use database | `use <name>` | Set current database context |
+| | Get database stats | `stats [database_name]` | Get database statistics |
+| | Drop database | `drop database <name>` | Delete a database |
+| **Collection Operations** | Create collection | `create collection <name>` | Create a new collection |
+| | List collections | `list collections` | Show all collections in current database |
+| | Check collection exists | `exists collection <name>` | Check if collection exists |
+| | Drop collection | `drop collection <name>` | Delete a collection |
+| **Data Operations** | Insert record | `insert <collection> <key> <value>` | Insert key-value pair |
+| | Find record | `find <collection> <key>` | Find value by key |
+| | Find all records | `find all <collection>` | Retrieve all records in collection |
+| | Update record | `update <collection> <key> <new_value>` | Update existing record |
+| | Batch insert | `batch insert <collection> key1=value1 key2=value2` | Insert multiple records |
+| | Delete record | `delete <collection> <key>` | Delete a record |
+| **Merkle Tree & Proofs** | Generate proof | `generate proof <collection> <key>` | Generate inclusion proof |
+| | Get root hash | `root hash <collection>` | Get collection's root hash |
+| | Verify proof | `verify proof <collection> <key> <value> <proof>` | Verify inclusion proof |
+| | Verify integrity | `verify integrity` | Check database integrity |
+| **Persistence** | Save database | `save` | Save current database |
+| | Save all | `save all` | Save all databases |
+| | Load database | `load <name>` | Load specific database |
+| | Load all | `load all` | Load all databases |
+| | Compact | `compact` | Optimize storage |
+| **User & Role Management** | Add user | `adduser <username> <password>` | Create new user |
+| | Create role | `createrole <rolename>` | Create new role |
+| | Grant permissions | `grant <role> <permissions>` | Assign permissions to role |
+| | Assign role | `assignrole <user> <role>` | Assign role to user |
+| **System Commands** | Help | `help` or `?` | Show available commands |
+| | Quit | `quit`, `exit`, or `q` | Exit the client |
 
--- Create collection
-create collection users
-
--- Insert key-value pair
-insert users john {"email": "john@example.com", "role": "admin"}
-
--- Find value by key
-find users john
-
--- Get collection statistics
-stats users
-
--- Get root hash
-root users
-```
-
-### Cryptographic Proofs
-```sql
--- Generate inclusion proof
-proof users john
-
--- Verify proof
-verify users john {"email": "john@example.com"} <proof_data>
-```
-
-### Data Management
-```sql
--- Save all data to disk
-save all
-
--- Compact storage
-compact users
-
--- Show database info
-show databases
-```
 
 ## Key Features
 
