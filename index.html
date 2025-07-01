@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MerkonDB - Cryptographically Secure Database</title>
+    <title>MerkonDB - Enterprise Cryptographically Secure Database</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,54 +15,87 @@
         }
 
         :root {
-            --primary: #0ea5e9;
-            --primary-dark: #0284c7;
-            --secondary: #8b5cf6;
-            --accent: #10b981;
-            --bg-dark: #0f172a;
-            --bg-darker: #020617;
-            --text-light: #f8fafc;
-            --text-gray: #94a3b8;
-            --glass: rgba(255, 255, 255, 0.1);
-            --glow: 0 0 40px rgba(14, 165, 233, 0.3);
+            --primary: #2563eb;
+            --primary-light: #3b82f6;
+            --primary-dark: #1d4ed8;
+            --secondary: #7c3aed;
+            --accent: #059669;
+            --accent-light: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --bg-glass: rgba(255, 255, 255, 0.05);
+            --bg-glass-hover: rgba(255, 255, 255, 0.08);
+            
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            
+            --border: rgba(255, 255, 255, 0.1);
+            --border-hover: rgba(255, 255, 255, 0.2);
+            
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+            --shadow-glow: 0 0 40px rgba(37, 99, 235, 0.15);
+            
+            --radius-sm: 0.375rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            --radius-xl: 1rem;
+            --radius-2xl: 1.5rem;
         }
 
         body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text-light);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             line-height: 1.6;
             overflow-x: hidden;
+            font-feature-settings: 'cv11', 'ss01';
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
-        /* Animated background */
-        .bg-animation {
+        /* Background Effects */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            opacity: 0.3;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        .bg-gradient {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             z-index: -1;
-            background: linear-gradient(45deg, var(--bg-darker), var(--bg-dark));
-        }
-
-        .bg-animation::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
             background: 
-                radial-gradient(circle at 20% 80%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
-            animation: pulse 4s ease-in-out infinite alternate;
+                radial-gradient(circle at 20% 10%, rgba(37, 99, 235, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(124, 58, 237, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 40% 70%, rgba(5, 150, 105, 0.06) 0%, transparent 50%),
+                radial-gradient(circle at 90% 90%, rgba(245, 158, 11, 0.04) 0%, transparent 50%);
+            animation: backgroundFlow 20s ease-in-out infinite;
         }
 
-        @keyframes pulse {
-            0% { opacity: 0.3; }
-            100% { opacity: 0.6; }
+        @keyframes backgroundFlow {
+            0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+            25% { transform: translateX(-20px) translateY(-10px) scale(1.05); }
+            50% { transform: translateX(10px) translateY(-20px) scale(0.95); }
+            75% { transform: translateX(-10px) translateY(10px) scale(1.02); }
         }
 
         /* Header */
@@ -70,22 +106,47 @@
             z-index: 1000;
             background: rgba(15, 23, 42, 0.8);
             backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--border);
+            transition: all 0.3s ease;
         }
 
-        nav {
+        .header-scrolled {
+            background: rgba(15, 23, 42, 0.95) !important;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .nav-container {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 1rem 2rem;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
-        .logo {
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+
+        .logo-text {
             font-size: 1.5rem;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            background: linear-gradient(135deg, var(--primary-light), var(--secondary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -95,33 +156,42 @@
             display: flex;
             list-style: none;
             gap: 2rem;
+            align-items: center;
         }
 
         .nav-links a {
-            color: var(--text-light);
+            color: var(--text-secondary);
             text-decoration: none;
             font-weight: 500;
-            transition: color 0.3s ease;
+            font-size: 0.95rem;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-md);
+            transition: all 0.3s ease;
             position: relative;
         }
 
         .nav-links a:hover {
-            color: var(--primary);
+            color: var(--text-primary);
+            background: var(--bg-glass);
         }
 
-        .nav-links a::after {
-            content: '';
-            position: absolute;
-            bottom: -4px;
-            left: 0;
-            width: 0;
-            height: 2px;
-            background: var(--primary);
-            transition: width 0.3s ease;
+        .github-btn {
+            background: var(--bg-glass) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text-primary) !important;
+            padding: 0.625rem 1.25rem !important;
+            border-radius: var(--radius-lg) !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 0.5rem !important;
+            transition: all 0.3s ease !important;
         }
 
-        .nav-links a:hover::after {
-            width: 100%;
+        .github-btn:hover {
+            background: var(--bg-glass-hover) !important;
+            border-color: var(--border-hover) !important;
+            transform: translateY(-1px) !important;
         }
 
         /* Hero Section */
@@ -131,109 +201,176 @@
             align-items: center;
             justify-content: center;
             text-align: center;
-            padding: 0 2rem;
+            padding: 8rem 2rem 4rem;
             position: relative;
         }
 
-        .hero-content h1 {
-            font-size: clamp(3rem, 8vw, 6rem);
+        .hero-content {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .hero-title {
+            font-size: clamp(3rem, 8vw, 5.5rem);
             font-weight: 800;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent));
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, var(--primary-light) 0%, var(--secondary) 50%, var(--accent-light) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            animation: glow 2s ease-in-out infinite alternate;
+            line-height: 1.1;
+            letter-spacing: -0.025em;
+            animation: fadeInUp 0.8s ease-out 0.2s both;
         }
 
-        @keyframes glow {
-            from { filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.5)); }
-            to { filter: drop-shadow(0 0 40px rgba(139, 92, 246, 0.7)); }
+        .hero-subtitle {
+            font-size: 1.375rem;
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            font-weight: 400;
+            line-height: 1.6;
+            animation: fadeInUp 0.8s ease-out 0.4s both;
         }
 
-        .hero-content p {
-            font-size: 1.5rem;
-            color: var(--text-gray);
-            margin-bottom: 2rem;
-            max-width: 600px;
-        }
-
-        .cta-buttons {
+        .hero-cta {
             display: flex;
             gap: 1rem;
             justify-content: center;
             flex-wrap: wrap;
+            animation: fadeInUp 0.8s ease-out 0.6s both;
         }
 
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Buttons */
         .btn {
-            padding: 1rem 2rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 2rem;
             border: none;
-            border-radius: 12px;
-            font-size: 1.1rem;
+            border-radius: var(--radius-lg);
+            font-size: 1rem;
             font-weight: 600;
+            text-decoration: none;
             cursor: pointer;
             transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
+            position: relative;
+            overflow: hidden;
         }
 
         .btn-primary {
             background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
-            box-shadow: var(--glow);
+            box-shadow: var(--shadow-glow);
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 0 60px rgba(14, 165, 233, 0.5);
+            box-shadow: 0 0 60px rgba(37, 99, 235, 0.3);
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: var(--text-light);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--bg-glass);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
             backdrop-filter: blur(10px);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: var(--bg-glass-hover);
+            border-color: var(--border-hover);
             transform: translateY(-2px);
         }
 
-        /* Features Section */
+        /* Sections */
         .section {
-            padding: 4rem 2rem;
-            max-width: 1200px;
+            padding: 6rem 2rem;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
-        .section-title {
-            font-size: 2.5rem;
-            font-weight: 700;
+        .section-header {
             text-align: center;
-            margin-bottom: 3rem;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
             margin-bottom: 4rem;
         }
 
+        .section-badge {
+            display: inline-flex;
+            align-items: center;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--accent-light);
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: clamp(2.5rem, 5vw, 3.5rem);
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }
+
+        .section-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
         .feature-card {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-glass);
             backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-2xl);
             padding: 2rem;
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            group: hover;
         }
 
         .feature-card::before {
@@ -249,62 +386,136 @@
         }
 
         .feature-card:hover::before {
-            opacity: 0.1;
+            opacity: 0.03;
         }
 
         .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            transform: translateY(-4px);
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow-xl);
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            z-index: 1;
         }
 
         .feature-card h3 {
-            font-size: 1.5rem;
+            font-size: 1.375rem;
+            font-weight: 600;
             margin-bottom: 1rem;
-            color: var(--primary);
+            color: var(--text-primary);
             position: relative;
             z-index: 1;
         }
 
         .feature-card p {
-            color: var(--text-gray);
+            color: var(--text-secondary);
+            line-height: 1.6;
             position: relative;
             z-index: 1;
         }
 
         /* Architecture Section */
-        .architecture {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 20px;
+        .architecture-container {
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-2xl);
             padding: 3rem;
-            margin: 4rem 0;
+            margin: 3rem 0;
         }
 
         .arch-diagram {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: var(--radius-xl);
             padding: 2rem;
             margin: 2rem 0;
-            font-family: 'Courier New', monospace;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
             overflow-x: auto;
         }
 
         .arch-layer {
             margin: 1rem 0;
-            padding: 1rem;
-            border-radius: 8px;
+            padding: 1.5rem;
+            border-radius: var(--radius-lg);
             transition: all 0.3s ease;
+            border-left: 4px solid;
+            font-weight: 500;
         }
 
         .arch-layer:hover {
-            transform: translateX(10px);
+            transform: translateX(8px);
         }
 
-        .layer-client { background: rgba(30, 64, 175, 0.3); }
-        .layer-api { background: rgba(180, 83, 9, 0.3); }
-        .layer-auth { background: rgba(124, 45, 18, 0.3); }
-        .layer-engine { background: rgba(3, 105, 161, 0.3); }
-        .layer-pmat { background: rgba(21, 128, 61, 0.3); }
-        .layer-storage { background: rgba(161, 98, 7, 0.3); }
+        .layer-client { 
+            background: rgba(59, 130, 246, 0.1); 
+            border-left-color: #3b82f6;
+        }
+        .layer-api { 
+            background: rgba(245, 158, 11, 0.1); 
+            border-left-color: #f59e0b;
+        }
+        .layer-auth { 
+            background: rgba(239, 68, 68, 0.1); 
+            border-left-color: #ef4444;
+        }
+        .layer-engine { 
+            background: rgba(124, 58, 237, 0.1); 
+            border-left-color: #7c3aed;
+        }
+        .layer-pmat { 
+            background: rgba(16, 185, 129, 0.1); 
+            border-left-color: #10b981;
+        }
+        .layer-storage { 
+            background: rgba(168, 85, 247, 0.1); 
+            border-left-color: #a855f7;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 4rem 0;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 2.5rem 2rem;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-2xl);
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            color: var(--accent-light);
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
 
         /* Commands Section */
         .commands-grid {
@@ -314,111 +525,148 @@
         }
 
         .command-category {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
             padding: 2rem;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .command-category:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
         }
 
         .command-category h3 {
-            color: var(--accent);
-            margin-bottom: 1rem;
-            font-size: 1.3rem;
+            color: var(--accent-light);
+            margin-bottom: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
         }
 
         .command-list {
-            font-family: 'Courier New', monospace;
-            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            font-size: 0.875rem;
         }
 
         .command-item {
-            margin: 0.5rem 0;
-            padding: 0.5rem;
+            margin: 0.75rem 0;
+            padding: 0.75rem;
             background: rgba(0, 0, 0, 0.2);
-            border-radius: 6px;
+            border-radius: var(--radius-md);
             border-left: 3px solid var(--primary);
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
         }
 
-        /* Performance Stats */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 2rem;
-        }
-
-        .stat-card {
-            text-align: center;
-            padding: 2rem;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .stat-number {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--accent);
-            display: block;
-        }
-
-        .stat-label {
-            color: var(--text-gray);
-            margin-top: 0.5rem;
+        .command-item:hover {
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-primary);
         }
 
         /* Installation Section */
+        .installation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .install-step {
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            padding: 2rem;
+        }
+
+        .install-step h3 {
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
         .code-block {
-            background: rgba(0, 0, 0, 0.5);
-            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: var(--radius-lg);
             padding: 1.5rem;
             margin: 1rem 0;
-            font-family: 'Courier New', monospace;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
             border-left: 4px solid var(--primary);
             overflow-x: auto;
+            font-size: 0.875rem;
         }
 
         .code-block code {
-            color: var(--accent);
+            color: var(--accent-light);
         }
 
         /* Footer */
         footer {
-            background: var(--bg-darker);
-            padding: 3rem 2rem;
-            text-align: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-secondary);
+            padding: 4rem 2rem 2rem;
+            border-top: 1px solid var(--border);
+            margin-top: 6rem;
         }
 
         .footer-content {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 3rem;
         }
 
-        /* Responsive */
+        .footer-section h4 {
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .footer-section p, .footer-section a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            line-height: 1.8;
+        }
+
+        .footer-section a:hover {
+            color: var(--primary-light);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            margin-top: 2rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-tertiary);
+        }
+
+        /* Responsive Design */
         @media (max-width: 768px) {
             .nav-links {
                 display: none;
             }
             
-            .cta-buttons {
+            .hero-cta {
                 flex-direction: column;
                 align-items: center;
             }
             
-            .features-grid {
+            .features-grid,
+            .commands-grid,
+            .installation-grid {
                 grid-template-columns: 1fr;
             }
             
-            .commands-grid {
-                grid-template-columns: 1fr;
+            .section {
+                padding: 4rem 1rem;
             }
         }
 
-        /* Scroll animations */
+        /* Utilities */
         .fade-in {
             opacity: 0;
             transform: translateY(30px);
-            transition: all 0.6s ease;
+            transition: all 0.8s ease;
         }
 
         .fade-in.visible {
@@ -428,264 +676,75 @@
     </style>
 </head>
 <body>
-    <div class="bg-animation"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-gradient"></div>
     
     <header>
-        <nav>
-            <div class="logo">MerkonDB</div>
+        <div class="nav-container">
+            <div class="logo-container">
+                <div class="logo-img">M</div>
+                <div class="logo-text">MerkonDB</div>
+            </div>
             <ul class="nav-links">
                 <li><a href="#features">Features</a></li>
                 <li><a href="#architecture">Architecture</a></li>
                 <li><a href="#commands">Commands</a></li>
                 <li><a href="#installation">Installation</a></li>
+                <li><a href="https://github.com/MerkonDB/MerkonDB" class="github-btn" target="_blank">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    GitHub
+                </a></li>
             </ul>
-        </nav>
+        </div>
     </header>
 
     <section class="hero">
         <div class="hero-content">
-            <h1>MerkonDB</h1>
-            <p>Cryptographically Secure, Merkle Tree-Based Database with Verifiable Data Integrity</p>
-            <div class="cta-buttons">
-                <a href="#installation" class="btn btn-primary">Get Started</a>
-                <a href="#architecture" class="btn btn-secondary">Learn More</a>
+            <div class="hero-badge">
+                <span>🔐</span>
+                Enterprise-Grade Security
+            </div>
+            <h1 class="hero-title">MerkonDB</h1>
+            <p class="hero-subtitle">
+                The world's first cryptographically secure database with verifiable data integrity using Merkle tree architecture. Built for enterprises that demand uncompromising security.
+            </p>
+            <div class="hero-cta">
+                <a href="#installation" class="btn btn-primary">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                    </svg>
+                    Get Started
+                </a>
+                <a href="https://github.com/MerkonDB/MerkonDB" class="btn btn-secondary" target="_blank">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    View Source
+                </a>
             </div>
         </div>
     </section>
 
     <section id="features" class="section">
-        <h2 class="section-title fade-in">Key Features</h2>
+        <div class="section-header fade-in">
+            <div class="section-badge">Features</div>
+            <h2 class="section-title">Unparalleled Security & Performance</h2>
+            <p class="section-subtitle">
+                Built from the ground up with cryptographic verification at its core, MerkonDB provides enterprise-grade security without compromising on performance.
+            </p>
+        </div>
         <div class="features-grid">
             <div class="feature-card fade-in">
-                <h3>🔐 Cryptographic Integrity</h3>
-                <p>Every operation is cryptographically verifiable using Merkle tree proofs, ensuring data integrity and authenticity.</p>
+                <div class="feature-icon">🔐</div>
+                <h3>Cryptographic Integrity</h3>
+                <p>Every database operation is cryptographically verifiable using Merkle tree proofs, ensuring absolute data integrity and authenticity across all transactions.</p>
             </div>
             <div class="feature-card fade-in">
-                <h3>👥 Role-Based Access Control</h3>
-                <p>Fine-grained permission management with user roles and granular access controls for enterprise security.</p>
+                <div class="feature-icon">👥</div>
+                <h3>Enterprise RBAC</h3>
+                <p>Sophisticated role-based access control with fine-grained permissions, user hierarchies, and audit trails for compliance and governance.</p>
             </div>
             <div class="feature-card fade-in">
-                <h3>📊 PMAT Architecture</h3>
-                <p>Partitioned Merkle Array Tree provides O(log k) search complexity with efficient modification operations.</p>
-            </div>
-            <div class="feature-card fade-in">
-                <h3>🔍 Membership Proofs</h3>
-                <p>Generate and verify compact inclusion proofs for any key, enabling distributed verification.</p>
-            </div>
-            <div class="feature-card fade-in">
-                <h3>💻 Interactive CLI</h3>
-                <p>Color-coded terminal interface with MQL (MerkonDB Query Language) for intuitive database management.</p>
-            </div>
-            <div class="feature-card fade-in">
-                <h3>🗄️ Multi-Database Support</h3>
-                <p>Organize data across multiple named databases and collections with efficient storage management.</p>
-            </div>
-        </div>
-    </section>
-
-    <section id="architecture" class="section">
-        <h2 class="section-title fade-in">Architecture Overview</h2>
-        <div class="architecture fade-in">
-            <p>MerkonDB implements a layered architecture combining security, performance, and usability:</p>
-            <div class="arch-diagram">
-                <div class="arch-layer layer-client">📱 Client Shell (client.py) - Interactive Terminal Interface</div>
-                <div class="arch-layer layer-api">🔌 Socket API - JSON over TCP Communication</div>
-                <div class="arch-layer layer-auth">🔐 Authentication & RBAC - User Management & Permissions</div>
-                <div class="arch-layer layer-engine">⚙️ Database Engine - Core Operations & Request Processing</div>
-                <div class="arch-layer layer-pmat">🌳 PMAT Structure - Partitioned Merkle Array Tree</div>
-                <div class="arch-layer layer-storage">💾 File Storage - Persistent Data Management</div>
-            </div>
-        </div>
-
-        <div class="stats-grid fade-in">
-            <div class="stat-card">
-                <span class="stat-number">O(log k)</span>
-                <div class="stat-label">Search Complexity</div>
-            </div>
-            <div class="stat-card">
-                <span class="stat-number">O(k)</span>
-                <div class="stat-label">Modification Speed</div>
-            </div>
-            <div class="stat-card">
-                <span class="stat-number">100%</span>
-                <div class="stat-label">Verifiable Operations</div>
-            </div>
-            <div class="stat-card">
-                <span class="stat-number">∞</span>
-                <div class="stat-label">Concurrent Clients</div>
-            </div>
-        </div>
-    </section>
-
-    <section id="commands" class="section">
-        <h2 class="section-title fade-in">MQL Commands</h2>
-        <div class="commands-grid">
-            <div class="command-category fade-in">
-                <h3>Database Operations</h3>
-                <div class="command-list">
-                    <div class="command-item">create database &lt;name&gt;</div>
-                    <div class="command-item">list databases</div>
-                    <div class="command-item">use &lt;database&gt;</div>
-                    <div class="command-item">drop database &lt;name&gt;</div>
-                </div>
-            </div>
-            <div class="command-category fade-in">
-                <h3>Data Operations</h3>
-                <div class="command-list">
-                    <div class="command-item">insert &lt;collection&gt; &lt;key&gt; &lt;value&gt;</div>
-                    <div class="command-item">find &lt;collection&gt; &lt;key&gt;</div>
-                    <div class="command-item">update &lt;collection&gt; &lt;key&gt; &lt;value&gt;</div>
-                    <div class="command-item">delete &lt;collection&gt; &lt;key&gt;</div>
-                </div>
-            </div>
-            <div class="command-category fade-in">
-                <h3>Merkle Proofs</h3>
-                <div class="command-list">
-                    <div class="command-item">generate proof &lt;collection&gt; &lt;key&gt;</div>
-                    <div class="command-item">verify proof &lt;collection&gt; &lt;key&gt; &lt;value&gt; &lt;proof&gt;</div>
-                    <div class="command-item">root hash &lt;collection&gt;</div>
-                    <div class="command-item">verify integrity</div>
-                </div>
-            </div>
-            <div class="command-category fade-in">
-                <h3>Access Control</h3>
-                <div class="command-list">
-                    <div class="command-item">adduser &lt;username&gt; &lt;password&gt;</div>
-                    <div class="command-item">createrole &lt;rolename&gt;</div>
-                    <div class="command-item">grant &lt;role&gt; &lt;permissions&gt;</div>
-                    <div class="command-item">assignrole &lt;user&gt; &lt;role&gt;</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section id="installation" class="section">
-        <h2 class="section-title fade-in">Quick Start</h2>
-        <div class="fade-in">
-            <h3>Prerequisites</h3>
-            <div class="code-block">
-                <code>GCC compiler, json-c library, pthread library, Python 3 with colorama</code>
-            </div>
-
-            <h3>Build Server</h3>
-            <div class="code-block">
-                <code>gcc -o server server.c smt.c smt_db.c rbac.c -ljson-c -lpthread</code>
-            </div>
-
-            <h3>Install Client Dependencies</h3>
-            <div class="code-block">
-                <code>pip3 install colorama</code>
-            </div>
-
-            <h3>Start Server</h3>
-            <div class="code-block">
-                <code>./server &lt;port&gt;</code>
-            </div>
-
-            <h3>Connect Client</h3>
-            <div class="code-block">
-                <code>python3 client.py &lt;host&gt; &lt;port&gt; &lt;username&gt; &lt;password&gt;</code>
-            </div>
-        </div>
-    </section>
-
-    <footer>
-        <div class="footer-content">
-            <p>&copy; 2025 MerkonDB. A cryptographically secure database system.</p>
-            <p>Built with PMAT architecture for verifiable data integrity.</p>
-        </div>
-    </footer>
-
-    <script>
-        // Smooth scrolling for navigation links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }
-            });
-        });
-
-        // Fade in animation on scroll
-        const observerOptions = {
-            threshold: 0.1,
-            rootMargin: '0px 0px -50px 0px'
-        };
-
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('visible');
-                }
-            });
-        }, observerOptions);
-
-        document.querySelectorAll('.fade-in').forEach(el => {
-            observer.observe(el);
-        });
-
-        // Navbar background on scroll
-        window.addEventListener('scroll', () => {
-            const header = document.querySelector('header');
-            if (window.scrollY > 100) {
-                header.style.background = 'rgba(15, 23, 42, 0.95)';
-            } else {
-                header.style.background = 'rgba(15, 23, 42, 0.8)';
-            }
-        });
-
-        // Parallax effect for hero section
-        window.addEventListener('scroll', () => {
-            const scrolled = window.pageYOffset;
-            const hero = document.querySelector('.hero');
-            if (hero) {
-                hero.style.transform = `translateY(${scrolled * 0.5}px)`;
-            }
-        });
-
-        // Dynamic stats animation
-        const animateStats = () => {
-            const statNumbers = document.querySelectorAll('.stat-number');
-            statNumbers.forEach(stat => {
-                if (stat.textContent !== '∞' && stat.textContent !== '100%') {
-                    const complexity = stat.textContent;
-                    stat.style.color = `hsl(${Math.random() * 60 + 120}, 70%, 60%)`;
-                }
-            });
-        };
-
-        setInterval(animateStats, 3000);
-
-        // Interactive feature cards
-        document.querySelectorAll('.feature-card').forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-5px) scale(1.02)';
-                this.style.boxShadow = '0 25px 50px rgba(14, 165, 233, 0.2)';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = 'translateY(0) scale(1)';
-                this.style.boxShadow = '0 20px 40px rgba(0, 0, 0, 0.3)';
-            });
-        });
-
-        // Command category hover effects
-        document.querySelectorAll('.command-category').forEach(category => {
-            category.addEventListener('mouseenter', function() {
-                this.style.transform = 'scale(1.02)';
-                this.style.boxShadow = '0 15px 30px rgba(16, 185, 129, 0.2)';
-            });
-            
-            category.addEventListener('mouseleave', function() {
-                this.style.transform = 'scale(1)';
-                this.style.boxShadow = 'none';
-            });
-        });
-    </script>
-</body>
-</html>
