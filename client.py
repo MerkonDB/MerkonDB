@@ -72,80 +72,89 @@ class MerkonDBClient(cmd.Cmd):
             sys.exit(1)
 
     def send_command(self, operation, params):
-        try:
-            # Include authentication in every message
-            message = json.dumps({
-                "operation": operation,
-                "params": params,
-                "auth": {
-                    "username": self.username,
-                    "password": self.password
-                }
-            })
-            length = len(message)
-            self.sock.sendall(struct.pack('!I', length))
-            self.sock.sendall(message.encode('utf-8'))
+            try:
+                # Include authentication in every message
+                message = json.dumps({
+                    "operation": operation,
+                    "params": params,
+                    "auth": {
+                        "username": self.username,
+                        "password": self.password
+                    }
+                })
+                length = len(message)
+                self.sock.sendall(struct.pack('!I', length))
+                self.sock.sendall(message.encode('utf-8'))
 
-            # Receive response length
-            response_length_data = self.sock.recv(4)
-            if len(response_length_data) != 4:
-                raise ValueError("Incomplete response length received")
-            response_length = struct.unpack('!I', response_length_data)[0]
+                # Receive response length
+                response_length_data = self.sock.recv(4)
+                if len(response_length_data) != 4:
+                    raise ValueError("Incomplete response length received")
+                response_length = struct.unpack('!I', response_length_data)[0]
 
-            # Receive and parse response
-            response = self.sock.recv(response_length).decode('utf-8')
-            resp_json = json.loads(response)
+                # Receive and parse response
+                response = self.sock.recv(response_length).decode('utf-8')
+                resp_json = json.loads(response)
 
-            # Handle successful responses
-            if resp_json.get("status") == "success":
-                if "databases" in resp_json:
-                    print(f"{Fore.GREEN}Available databases:{Style.RESET_ALL}", ", ".join(resp_json["databases"]))
-                elif "collections" in resp_json:
-                    print(f"{Fore.GREEN}Available collections:{Style.RESET_ALL}", ", ".join(resp_json["collections"]))
-                elif "value" in resp_json:
-                    print(f"{Fore.GREEN}Record value:{Style.RESET_ALL}", resp_json["value"])
-                elif "exists" in resp_json:
-                    status = "exists" if resp_json["exists"] else "does not exist"
-                    print(f"{Fore.GREEN}Status:{Style.RESET_ALL} {status}")
-                elif "valid" in resp_json:
-                    validity = "valid" if resp_json["valid"] else "invalid"
-                    print(f"{Fore.GREEN}Proof verification:{Style.RESET_ALL} {validity}")
-                elif "proof" in resp_json:
-                    print(f"{Fore.GREEN}Generated proof:{Style.RESET_ALL}", json.dumps(resp_json["proof"], indent=2))
-                elif "stats" in resp_json:
-                    print(f"{Fore.GREEN}Database statistics:{Style.RESET_ALL}", json.dumps(resp_json["stats"], indent=2))
-                elif "keys" in resp_json:
-                    print(f"{Fore.GREEN}Collection records:{Style.RESET_ALL}")
-                    for k, v in zip(resp_json["keys"], resp_json["values"]):
-                        print(f"  {Fore.CYAN}{k}:{Style.RESET_ALL} {v}")
-                elif "root_hash" in resp_json:
-                    print(f"{Fore.GREEN}Current root hash:{Style.RESET_ALL}", resp_json["root_hash"])
-                elif "verification_results" in resp_json:
-                    print(f"{Fore.GREEN}Integrity verification results:{Style.RESET_ALL}")
-                    for result in resp_json["verification_results"]:
-                        collection = result.get("collection", "Unknown")
-                        root_hash = result.get("root_hash", "N/A")
-                        print(f"  Collection: {collection}, Root Hash: {root_hash}")
+                # Handle successful responses
+                if resp_json.get("status") == "success":
+                    if "databases" in resp_json:
+                        print(f"{Fore.GREEN}Available databases:{Style.RESET_ALL}\n", json.dumps(resp_json["databases"], indent=2))
+                    elif "collections" in resp_json:
+                        print(f"{Fore.GREEN}Available collections:{Style.RESET_ALL}\n", json.dumps(resp_json["collections"], indent=2))
+                    elif "value" in resp_json:
+                        print(f"{Fore.GREEN}Record value:{Style.RESET_ALL}")
+                        # Try to parse the value as JSON, fall back to raw display if it fails
+                        try:
+                            parsed_value = json.loads(resp_json["value"])
+                            print(json.dumps(parsed_value, indent=2))
+                        except (json.JSONDecodeError, TypeError):
+                            print(json.dumps(resp_json["value"], indent=2))
+                    elif "exists" in resp_json:
+                        status = "exists" if resp_json["exists"] else "does not exist"
+                        print(f"{Fore.GREEN}Status:{Style.RESET_ALL} {status}")
+                    elif "valid" in resp_json:
+                        validity = "valid" if resp_json["valid"] else "invalid"
+                        print(f"{Fore.GREEN}Proof verification:{Style.RESET_ALL} {validity}")
+                    elif "proof" in resp_json:
+                        print(f"{Fore.GREEN}Generated proof:{Style.RESET_ALL}\n", json.dumps(resp_json["proof"], indent=2))
+                    elif "stats" in resp_json:
+                        print(f"{Fore.GREEN}Database statistics:{Style.RESET_ALL}\n", json.dumps(resp_json["stats"], indent=2))
+                    elif "keys" in resp_json and "values" in resp_json:
+                        print(f"{Fore.GREEN}Collection records:{Style.RESET_ALL}")
+                        records = {}
+                        for k, v in zip(resp_json["keys"], resp_json["values"]):
+                            # Try to parse the value as JSON, fall back to raw string if it fails
+                            try:
+                                parsed_value = json.loads(v)
+                                records[k] = parsed_value
+                            except (json.JSONDecodeError, TypeError):
+                                records[k] = v
+                        print(json.dumps(records, indent=2))
+                    elif "root_hash" in resp_json:
+                        print(f"{Fore.GREEN}Current root hash:{Style.RESET_ALL}\n", json.dumps(resp_json["root_hash"], indent=2))
+                    elif "verification_results" in resp_json:
+                        print(f"{Fore.GREEN}Integrity verification results:{Style.RESET_ALL}\n", json.dumps(resp_json["verification_results"], indent=2))
+                    else:
+                        print(f"{Fore.GREEN}✓ Operation completed successfully{Style.RESET_ALL}")
                 else:
-                    print(f"{Fore.GREEN}✓ Operation completed successfully{Style.RESET_ALL}")
-            else:
-                print(f"{Fore.RED}✗ Error: {resp_json.get('error_message', 'Unknown error')}{Style.RESET_ALL}")
+                    print(f"{Fore.RED}✗ Error: {resp_json.get('error_message', 'Unknown error')}{Style.RESET_ALL}")
 
-        except json.JSONDecodeError as e:
-            print(f"{Fore.RED}✗ Communication error: Invalid response format ({e}){Style.RESET_ALL}")
-            self.sock.close()
-            self.connect()
-            self.send_auth()
-        except ConnectionError as e:
-            print(f"{Fore.RED}✗ Communication error: Connection issue ({e}){Style.RESET_ALL}")
-            self.sock.close()
-            self.connect()
-            self.send_auth()
-        except Exception as e:
-            print(f"{Fore.RED}✗ Communication error: {e}{Style.RESET_ALL}")
-            self.sock.close()
-            self.connect()
-            self.send_auth()
+            except json.JSONDecodeError as e:
+                print(f"{Fore.RED}✗ Communication error: Invalid response format ({e}){Style.RESET_ALL}")
+                self.sock.close()
+                self.connect()
+                self.send_auth()
+            except ConnectionError as e:
+                print(f"{Fore.RED}✗ Communication error: Connection issue ({e}){Style.RESET_ALL}")
+                self.sock.close()
+                self.connect()
+                self.send_auth()
+            except Exception as e:
+                print(f"{Fore.RED}✗ Communication error: {e}{Style.RESET_ALL}")
+                self.sock.close()
+                self.connect()
+                self.send_auth()
 
     def do_use(self, arg):
         """Switch to a specific database
