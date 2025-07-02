@@ -3,6 +3,7 @@ import json
 import cmd
 import sys
 import struct
+import shlex
 import re
 from colorama import Fore, Style
 
@@ -114,12 +115,17 @@ class MerkonDBClient(cmd.Cmd):
                     print(f"{Fore.GREEN}Collection records:{Style.RESET_ALL}")
                     records = {}
                     for k, v in zip(resp_json["keys"], resp_json["values"]):
-                        try:
-                            parsed_value = json.loads(v)
-                            records[k] = parsed_value
-                        except (json.JSONDecodeError, TypeError):
-                            records[k] = v
+                        if isinstance(v, str):
+                            try:
+                                parsed_value = json.loads(v)  # Parse the JSON string into a Python object
+                                records[k] = parsed_value
+                            except json.JSONDecodeError:
+                                records[k] = v  # If parsing fails, use the raw string
+                        else:
+                            records[k] = v  # If not a string, use as is
                     print(json.dumps(records, indent=2))
+                elif "keys" in resp_json:
+                    print(f"{Fore.GREEN}Matching keys:{Style.RESET_ALL}\n", json.dumps(resp_json["keys"], indent=2))
                 elif "root_hash" in resp_json:
                     print(f"{Fore.GREEN}Current root hash:{Style.RESET_ALL}\n", json.dumps(resp_json["root_hash"], indent=2))
                 elif "verification_results" in resp_json:
@@ -146,7 +152,6 @@ class MerkonDBClient(cmd.Cmd):
             self.send_auth()
 
     def precmd(self, line):
-        """Handle commands with spaces by converting them to underscores"""
         space_commands = {
             'add user': 'add_user',
             'add role': 'add_role',
@@ -166,7 +171,9 @@ class MerkonDBClient(cmd.Cmd):
             'batch insert': 'batch_insert',
             'save all': 'save_all',
             'load all': 'load_all',
-            'find all': 'find_all'
+            #'find all':'find_all',
+            'create index': 'create_index',
+            'find by': 'find_by'
         }
         
         for cmd, replacement in space_commands.items():
@@ -176,12 +183,11 @@ class MerkonDBClient(cmd.Cmd):
         return line
 
     def do_use(self, arg):
-        """Switch to a specific database
-Usage: use <db_name>"""
         if not arg:
             print(f"{Fore.RED}✗ Error: Database name required{Style.RESET_ALL}")
             return
         self.current_db = arg
+        self.send_command("db_open", {"db_name": self.current_db})
         print(f"{Fore.GREEN}✓ Now using database: {arg}{Style.RESET_ALL}")
 
     def do_create_database(self, arg):
@@ -290,19 +296,28 @@ Usage: stats [<db_name>]"""
 
     def do_insert(self, arg):
         """Insert a record into a collection
-Usage: insert <collection_name> <key> <value>"""
+        Usage: insert <collection_name> <key> <value>"""
         args = arg.split(maxsplit=2)
         if len(args) != 3:
             print(f"{Fore.RED}✗ Error: Usage: insert <collection_name> <key> <value>{Style.RESET_ALL}")
             return
+        
+        # Try to parse as JSON first
+        try:
+            json_value = json.loads(args[2])
+            value = json.dumps(json_value)  # This will be properly formatted JSON
+        except json.JSONDecodeError:
+            value = args[2]  # Fall back to raw string if not JSON
+        
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
+        
         self.send_command("db_insert", {
             "db_name": self.current_db,
             "collection_name": args[0],
             "key": args[1],
-            "value": args[2]
+            "value": value
         })
 
     def do_find(self, arg):
@@ -337,19 +352,28 @@ Usage: find <collection_name> <key>
 
     def do_update(self, arg):
         """Update a record in a collection
-Usage: update <collection_name> <key> <value>"""
+        Usage: update <collection_name> <key> <value>"""
         args = arg.split(maxsplit=2)
         if len(args) != 3:
             print(f"{Fore.RED}✗ Error: Usage: update <collection_name> <key> <value>{Style.RESET_ALL}")
             return
+        
+        # Try to parse as JSON first
+        try:
+            json_value = json.loads(args[2])
+            value = json.dumps(json_value)  # This will be properly formatted JSON
+        except json.JSONDecodeError:
+            value = args[2]  # Fall back to raw string if not JSON
+        
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
+        
         self.send_command("db_update", {
             "db_name": self.current_db,
             "collection_name": args[0],
             "key": args[1],
-            "value": args[2]
+            "value": value
         })
 
     def do_delete(self, arg):
@@ -587,6 +611,63 @@ Usage: revoke role <username> <role_name>"""
             "role_name": args[1]
         })
 
+    def do_create_index(self, arg):
+        """Create an index on a field in a collection
+    Usage: create index <collection_name> <field_name>"""
+        args = arg.split()
+        if len(args) != 2:
+            print(f"{Fore.RED}✗ Error: Usage: create index <collection_name> <field_name>{Style.RESET_ALL}")
+            return
+        if not self.current_db:
+            print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
+            return
+        self.send_command("db_create_index", {
+            "db_name": self.current_db,
+            "collection_name": args[0],
+            "field_name": args[1]
+        })
+
+    
+
+    def do_find_by(self, arg):
+        """Find records by field value
+    Usage: find by <collection_name> <field_name>=<field_value>"""
+        try:
+            # Split into collection name and query parts
+            parts = arg.split(maxsplit=1)
+            if len(parts) != 2:
+                print(f"{Fore.RED}✗ Error: Usage: find by <collection_name> <field_name>=<field_value>{Style.RESET_ALL}")
+                return
+                
+            collection_name, query = parts
+            
+            # Split the query into field_name and field_value
+            if '=' not in query:
+                print(f"{Fore.RED}✗ Error: Invalid query format - must be field=value{Style.RESET_ALL}")
+                return
+                
+            field_name, field_value = query.split('=', 1)
+            field_value = field_value.strip()
+            
+            # Remove surrounding quotes if present
+            if (field_value.startswith('"') and field_value.endswith('"')) or \
+               (field_value.startswith("'") and field_value.endswith("'")):
+                field_value = field_value[1:-1]
+            
+            if not self.current_db:
+                print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
+                return
+                
+            self.send_command("db_query_by_field", {
+                "db_name": self.current_db,
+                "collection_name": collection_name,
+                "field_name": field_name.strip(),
+                "field_value": field_value
+            })
+        
+        except Exception as e:
+            print(f"{Fore.RED}✗ Error processing find by command: {e}{Style.RESET_ALL}")
+
     def do_exit(self, arg):
         """Exit the shell"""
         print(f"{Fore.GREEN}✓ Goodbye{Style.RESET_ALL}")
@@ -613,7 +694,6 @@ Usage: revoke role <username> <role_name>"""
             else:
                 print(f"{Fore.RED}✗ No help available for {arg}{Style.RESET_ALL}")
         else:
-            # Command groups with descriptions
             command_groups = {
                 "Database Operations": [
                     ("use <db_name>", "Set active database"),
@@ -635,9 +715,13 @@ Usage: revoke role <username> <role_name>"""
                     ("insert <col> <key> <val>", "Insert key-value pair"),
                     ("find <col> <key>", "Retrieve value by key"),
                     ("find all <col>", "Get all records in collection"),
+                    ("find by <col> <field>=<val>", "Find records by field value"),
                     ("update <col> <key> <val>", "Modify existing record"),
                     ("delete <col> <key>", "Remove record"),
                     ("batch insert <col> <k=v>...", "Insert multiple records")
+                ],
+                "Indexing": [
+                    ("create index <col> <field>", "Create index on a field")
                 ],
                 "Integrity Verification": [
                     ("root <collection>", "Get Merkle root hash"),
@@ -667,14 +751,14 @@ Usage: revoke role <username> <role_name>"""
                 ]
             }
 
-        print(f"\n{Fore.CYAN}MerkonDB Query Language(MQL) Reference{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}========================================{Style.RESET_ALL}")
-        
-        for group, commands in command_groups.items():
-            print(f"\n{Fore.YELLOW}{group}{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}{'-'*len(group)}{Style.RESET_ALL}")
-            for cmd, desc in commands:
-                print(f"{Fore.GREEN}{cmd.ljust(30)}{Style.RESET_ALL} {desc}")
+            print(f"\n{Fore.CYAN}MerkonDB Query Language(MQL) Reference{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}========================================{Style.RESET_ALL}")
+            
+            for group, commands in command_groups.items():
+                print(f"\n{Fore.YELLOW}{group}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}{'-'*len(group)}{Style.RESET_ALL}")
+                for cmd, desc in commands:
+                    print(f"{Fore.GREEN}{cmd.ljust(30)}{Style.RESET_ALL} {desc}")
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:

@@ -430,8 +430,8 @@ static smt_error_t verify_layer_proof(const Layer* layer, int element_index,
 
     // For multi-element layers, verify the proof length
     if (proof_len != (layer->element_count - 1) * HASH_SIZE) {
-        printf("DEBUG: Proof length mismatch - expected %zu, got %zu\n",
-               (layer->element_count - 1) * HASH_SIZE, proof_len);
+    printf("DEBUG: Proof length mismatch - expected %zu, got %zu\n",
+           (size_t)(layer->element_count - 1) * HASH_SIZE, proof_len);
         return SMT_ERROR_INVALID_PARAMETER;
     }
 
