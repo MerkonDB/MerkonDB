@@ -20,7 +20,8 @@ typedef enum {
     SMT_ERROR_MEMORY_ALLOCATION = -2,
     SMT_ERROR_INVALID_PARAMETER = -3,
     SMT_ERROR_KEY_NOT_FOUND = -4,
-    SMT_ERROR_LAYER_OVERFLOW = -5
+    SMT_ERROR_LAYER_OVERFLOW = -5,
+    SMT_ERROR_INFINITE_LOOP = -6
 } smt_error_t;
 
 typedef struct {
@@ -68,5 +69,6 @@ smt_error_t smt_verify_proof(const SMT* smt, const char* key, const char* value,
                             const MembershipProof* proof, int* valid);
 void membership_proof_cleanup(MembershipProof* proof);
 void smt_print_stats(const SMT* smt);
+smt_error_t layer_resize(Layer* layer);
 
-#endif
+#endif // SMT_H

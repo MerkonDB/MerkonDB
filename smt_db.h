@@ -1,3 +1,4 @@
+
 #ifndef SMT_DB_H
 #define SMT_DB_H
 
@@ -28,7 +29,11 @@ typedef enum {
     DB_ERROR_CONCURRENT_ACCESS = -11,
     DB_ERROR_DATABASE_CLOSED = -12,
     DB_ERROR_IO_ERROR = -13,
-    DB_ERROR_CORRUPTED_DATA = -14
+    DB_ERROR_CORRUPTED_DATA = -14,
+    DB_ERROR_INVALID_STATE = -15,
+    DB_ERROR_SMT_FAILED = -16,
+    DB_ERROR_LOCK_TIMEOUT = -17,
+    DB_ERROR_LOCK_FAILED = -18
 } db_error_t;
 
 typedef struct {
