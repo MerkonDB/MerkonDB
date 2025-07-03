@@ -41,7 +41,6 @@ PMAT is the core data structure powering MerkonDB's performance and security gua
 - **Integrity Proofs**: Generate compact cryptographic proofs for any operation
 - **Distributed Ready**: Verifiable operations across distributed environments
 
-```
 
 ## Components
 
