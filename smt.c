@@ -430,8 +430,8 @@ static smt_error_t verify_layer_proof(const Layer* layer, int element_index,
 
     // For multi-element layers, verify the proof length
     if (proof_len != (layer->element_count - 1) * HASH_SIZE) {
-        printf("DEBUG: Proof length mismatch - expected %zu, got %zu\n",
-               (layer->element_count - 1) * HASH_SIZE, proof_len);
+    printf("DEBUG: Proof length mismatch - expected %zu, got %zu\n",
+           (size_t)(layer->element_count - 1) * HASH_SIZE, proof_len);
         return SMT_ERROR_INVALID_PARAMETER;
     }
 
@@ -818,27 +818,89 @@ void smt_cleanup(SMT* smt) {
     memset(smt, 0, sizeof(SMT));
 }
 
-smt_error_t smt_insert(SMT* smt, const char* key, const char* value) {
-    if (!smt || !key) return SMT_ERROR_NULL_POINTER;
+smt_error_t layer_resize(Layer* layer) {
+    if (!layer) {
+        fprintf(stderr, "[ERROR] layer_resize: Null layer\n");
+        return SMT_ERROR_NULL_POINTER;
+    }
     
+    int new_capacity = layer->capacity == 0 ? 8 : layer->capacity * 2;
+    if (new_capacity > 1000000) { // Arbitrary limit to prevent excessive allocation
+        fprintf(stderr, "[ERROR] layer_resize: New capacity %d exceeds limit\n", new_capacity);
+        return SMT_ERROR_LAYER_OVERFLOW;
+    }
+    
+    Element* new_elements = realloc(layer->elements, sizeof(Element) * new_capacity);
+    if (!new_elements) {
+        fprintf(stderr, "[ERROR] layer_resize: Memory allocation failed\n");
+        return SMT_ERROR_MEMORY_ALLOCATION;
+    }
+    
+    layer->elements = new_elements;
+    layer->capacity = new_capacity;
+    fprintf(stdout, "[DEBUG] layer_resize: Resized to capacity=%d\n", new_capacity);
+    return SMT_SUCCESS;
+}
+
+smt_error_t smt_insert(SMT* smt, const char* key, const char* value) {
+    fprintf(stdout, "[DEBUG] smt_insert: Starting for key='%s'\n", key);
+    if (!smt || !key) {
+        fprintf(stderr, "[ERROR] smt_insert: Null pointer detected\n");
+        return SMT_ERROR_NULL_POINTER;
+    }
+    
+    if (strlen(key) >= 256) {
+        fprintf(stderr, "[ERROR] smt_insert: Key length exceeds 256 for '%s'\n", key);
+        return SMT_ERROR_INVALID_PARAMETER;
+    }
+
     int priority = compute_priority(key);
-    if (priority < 0 || priority >= MAX_LAYERS) return SMT_ERROR_INVALID_PARAMETER;
+    if (priority < 0 || priority >= MAX_LAYERS) {
+        fprintf(stderr, "[ERROR] smt_insert: Invalid priority %d for key '%s'\n", priority, key);
+        return SMT_ERROR_INVALID_PARAMETER;
+    }
+    
+    fprintf(stdout, "[DEBUG] smt_insert: Computed priority=%d\n", priority);
     
     if (priority >= smt->layer_count) {
+        fprintf(stdout, "[DEBUG] smt_insert: Extending layer_count to %d\n", priority + 1);
         smt->layer_count = priority + 1;
     }
     
     Layer* layer = &smt->layers[priority];
+    fprintf(stdout, "[DEBUG] smt_insert: Accessing layer at priority %d\n", priority);
+    
+    uint32_t max_iterations = 1000; // Arbitrary limit to prevent infinite loops
+    uint32_t iteration = 0;
+    while (layer->element_count >= layer->capacity && iteration < max_iterations) {
+        fprintf(stdout, "[DEBUG] smt_insert: Layer full, resizing (iteration %u)\n", iteration);
+        smt_error_t resize_err = layer_resize(layer);
+        if (resize_err != SMT_SUCCESS) {
+            fprintf(stderr, "[ERROR] smt_insert: Layer resize failed, error=%d\n", resize_err);
+            return resize_err;
+        }
+        iteration++;
+    }
+    if (iteration >= max_iterations) {
+        fprintf(stderr, "[ERROR] smt_insert: Exceeded max iterations for layer resize\n");
+        return SMT_ERROR_INFINITE_LOOP;
+    }
+
     int existing_index = find_element_in_layer(layer, key);
+    fprintf(stdout, "[DEBUG] smt_insert: Existing index=%d for key '%s'\n", existing_index, key);
     
     if (existing_index >= 0) {
         Element* elem = &layer->elements[existing_index];
+        fprintf(stdout, "[DEBUG] smt_insert: Updating existing element\n");
         free(elem->value);
         
         if (value) {
             elem->value_len = strlen(value);
             elem->value = malloc(elem->value_len + 1);
-            if (!elem->value) return SMT_ERROR_MEMORY_ALLOCATION;
+            if (!elem->value) {
+                fprintf(stderr, "[ERROR] smt_insert: Memory allocation failed\n");
+                return SMT_ERROR_MEMORY_ALLOCATION;
+            }
             strcpy(elem->value, value);
         } else {
             elem->value = NULL;
@@ -848,13 +910,18 @@ smt_error_t smt_insert(SMT* smt, const char* key, const char* value) {
         layer->dirty = 1;
         smt->dirty = 1;
     } else {
+        fprintf(stdout, "[DEBUG] smt_insert: Adding new element\n");
         smt_error_t err = layer_add_element(layer, key, value, priority);
-        if (err != SMT_SUCCESS) return err;
+        if (err != SMT_SUCCESS) {
+            fprintf(stderr, "[ERROR] smt_insert: Failed to add element, error=%d\n", err);
+            return err;
+        }
         
         smt->total_elements++;
         smt->dirty = 1;
     }
     
+    fprintf(stdout, "[DEBUG] smt_insert: Completed for key '%s'\n", key);
     return SMT_SUCCESS;
 }
 
