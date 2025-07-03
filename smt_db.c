@@ -1249,54 +1249,68 @@ db_error_t db_create_index(const char* db_name, const char* collection_name, con
         fprintf(stdout, "[DEBUG] db_create_index: Parsed JSON for key %s\n", keys[i]);
 
         json_t* field_value = json_object_get(root, field_name);
-        if (field_value && json_is_string(field_value)) {
-            const char* val_str = json_string_value(field_value);
-            char index_key[256];
-            if (strlen(field_name) + strlen(val_str) + 10 >= sizeof(index_key)) {
-                fprintf(stderr, "[ERROR] db_create_index: Index key too long for %s:%s\n", field_name, val_str);
-                json_decref(root);
-                continue;
+        if (field_value && (json_is_string(field_value) || json_is_integer(field_value) || json_is_real(field_value))) {
+            const char* val_str = NULL;
+            char val_buffer[64] = {0};
+            
+            if (json_is_string(field_value)) {
+                val_str = json_string_value(field_value);
+            } else if (json_is_integer(field_value)) {
+                snprintf(val_buffer, sizeof(val_buffer), "%lld", (long long)json_integer_value(field_value));
+                val_str = val_buffer;
+            } else if (json_is_real(field_value)) {
+                snprintf(val_buffer, sizeof(val_buffer), "%f", json_real_value(field_value));
+                val_str = val_buffer;
             }
-            snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
-            fprintf(stdout, "[DEBUG] db_create_index: Generated index key: %s\n", index_key);
+            
+            if (val_str) {
+                char index_key[256];
+                if (strlen(field_name) + strlen(val_str) + 10 >= sizeof(index_key)) {
+                    fprintf(stderr, "[ERROR] db_create_index: Index key too long for %s:%s\n", field_name, val_str);
+                    json_decref(root);
+                    continue;
+                }
+                snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
+                fprintf(stdout, "[DEBUG] db_create_index: Generated index key: %s\n", index_key);
 
-            char* current_list_str = NULL;
-            fprintf(stdout, "[DEBUG] db_create_index: Calling smt_lookup for %s\n", index_key);
-            smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
-            fprintf(stdout, "[DEBUG] db_create_index: smt_lookup returned %d\n", lookup_err);
+                char* current_list_str = NULL;
+                fprintf(stdout, "[DEBUG] db_create_index: Calling smt_lookup for %s\n", index_key);
+                smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
+                fprintf(stdout, "[DEBUG] db_create_index: smt_lookup returned %d\n", lookup_err);
 
-            json_t* list = NULL;
-            if (lookup_err == SMT_SUCCESS && current_list_str) {
-                list = json_loads(current_list_str, 0, NULL);
-                free(current_list_str);
+                json_t* list = NULL;
+                if (lookup_err == SMT_SUCCESS && current_list_str) {
+                    list = json_loads(current_list_str, 0, NULL);
+                    free(current_list_str);
+                    if (!list) {
+                        fprintf(stderr, "[ERROR] db_create_index: Failed to parse current list for %s\n", index_key);
+                        json_decref(root);
+                        continue;
+                    }
+                }
                 if (!list) {
-                    fprintf(stderr, "[ERROR] db_create_index: Failed to parse current list for %s\n", index_key);
-                    json_decref(root);
-                    continue;
+                    list = json_array();
                 }
-            }
-            if (!list) {
-                list = json_array();
-            }
-            json_array_append_new(list, json_string(keys[i]));
-            char* new_list_str = json_dumps(list, JSON_COMPACT);
-            if (new_list_str) {
-                fprintf(stdout, "[DEBUG] db_create_index: Calling smt_insert for %s\n", index_key);
-                smt_error_t insert_err = smt_insert(&col->tree, index_key, new_list_str);
-                if (insert_err != SMT_SUCCESS) {
-                    fprintf(stderr, "[ERROR] db_create_index: smt_insert failed for %s, error=%d\n", index_key, insert_err);
+                json_array_append_new(list, json_string(keys[i]));
+                char* new_list_str = json_dumps(list, JSON_COMPACT);
+                if (new_list_str) {
+                    fprintf(stdout, "[DEBUG] db_create_index: Calling smt_insert for %s\n", index_key);
+                    smt_error_t insert_err = smt_insert(&col->tree, index_key, new_list_str);
+                    if (insert_err != SMT_SUCCESS) {
+                        fprintf(stderr, "[ERROR] db_create_index: smt_insert failed for %s, error=%d\n", index_key, insert_err);
+                        free(new_list_str);
+                        json_decref(list);
+                        json_decref(root);
+                        continue;
+                    }
                     free(new_list_str);
-                    json_decref(list);
-                    json_decref(root);
-                    continue;
+                } else {
+                    fprintf(stderr, "[ERROR] db_create_index: Failed to serialize list for %s\n", index_key);
                 }
-                free(new_list_str);
-            } else {
-                fprintf(stderr, "[ERROR] db_create_index: Failed to serialize list for %s\n", index_key);
+                json_decref(list);
             }
-            json_decref(list);
         } else {
-            fprintf(stdout, "[DEBUG] db_create_index: Field %s not found or not a string in key %s\n", field_name, keys[i]);
+            fprintf(stdout, "[DEBUG] db_create_index: Field %s not found or not indexable in key %s\n", field_name, keys[i]);
         }
         json_decref(root);
     }
