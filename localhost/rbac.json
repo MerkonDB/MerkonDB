@@ -1,1 +1,1 @@
-{"roles":[{"name":"admin","permissions":31}],"users":[{"username":"admin","password_hash":"d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1","roles":["admin"]}]}
+{"roles":[{"name":"admin","permissions":31}],"users":[{"username":"admin","password_hash":"d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1","roles":["admin"]},{"username":"admin1","password_hash":"713bfda78870bf9d1b261f565286f85e97ee614efe5f0faf7c34e7ca4f65baca","roles":[]}]}

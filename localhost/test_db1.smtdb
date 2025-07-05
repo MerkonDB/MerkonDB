@@ -1,0 +1,1 @@
+{"name":"test_db1","created_at":1751700516,"last_modified":1751700518,"collections":[{"name":"users","created_at":1751700517,"last_modified":1751700518,"records":[{"key":"user1","value":"{\"name\": \"Alice\", \"age\": 31, \"email\": \"alice@example.com\"}"}],"indexes":[{"key":"__index__:age:31","value":"[\"user1\"]"}],"indexed_fields":["age"]}]}
