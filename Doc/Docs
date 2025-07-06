@@ -1,0 +1,26 @@
+
+Shell
+---------
+gcc -shared -fPIC \
+    $(pkg-config --cflags jansson) \
+    -o libsmt_db.so \
+    smt_db.c smt.c \
+    $(pkg-config --libs jansson) \
+    -lcrypto -lm -lpthread
+
+    ldd ./libsmt_db.so
+
+    python3 main.py ./smt_db
+
+    valgrind --leak-check=full python3 main.py ./smt_db
+
+client-server
+--------------
+
+gcc -o server server.c smt.c -ljansson -lssl -lcrypto -pthread
+
+./server localhost 8080
+
+python3 client.py localhost 8080
+
+gcc -o server server.c smt.c smt_db.c rbac.c -ljansson -lssl -lcrypto -pthread
