@@ -33,7 +33,9 @@ typedef enum {
     DB_ERROR_INVALID_STATE = -15,
     DB_ERROR_SMT_FAILED = -16,
     DB_ERROR_LOCK_TIMEOUT = -17,
-    DB_ERROR_LOCK_FAILED = -18
+    DB_ERROR_LOCK_FAILED = -18,
+    DB_ERROR_INDEX_NOT_FOUND = -19
+
 } db_error_t;
 
 typedef struct {
@@ -134,5 +136,8 @@ db_error_t db_load_all();
 const char* db_error_string(db_error_t error);
 db_error_t db_compact(const char* db_name);
 db_error_t db_verify_integrity(const char* db_name, json_t** verification_results);
+
+db_error_t db_list_indexes(const char* db_name, const char* collection_name, char*** indexed_fields, size_t* count);
+db_error_t db_drop_index(const char* db_name, const char* collection_name, const char* field_name);
 
 #endif // SMT_DB_H

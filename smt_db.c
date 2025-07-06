@@ -367,6 +367,104 @@ static db_error_t serialize_database(Database* db, int fd) {
     return DB_SUCCESS;
 }
 
+db_error_t db_list_indexes(const char* db_name, const char* collection_name, char*** indexed_fields, size_t* count) {
+    Database* db = find_database(db_name);
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
+    
+    Collection* col = find_collection(db, collection_name);
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
+    
+    pthread_rwlock_rdlock(&col->lock);
+    
+    *indexed_fields = malloc(col->indexed_field_count * sizeof(char*));
+    if (!*indexed_fields) {
+        pthread_rwlock_unlock(&col->lock);
+        return DB_ERROR_MEMORY_ALLOCATION;
+    }
+    
+    for (size_t i = 0; i < col->indexed_field_count; i++) {
+        (*indexed_fields)[i] = strdup(col->indexed_fields[i]);
+        if (!(*indexed_fields)[i]) {
+            for (size_t j = 0; j < i; j++) {
+                free((*indexed_fields)[j]);
+            }
+            free(*indexed_fields);
+            pthread_rwlock_unlock(&col->lock);
+            return DB_ERROR_MEMORY_ALLOCATION;
+        }
+    }
+    
+    *count = col->indexed_field_count;
+    pthread_rwlock_unlock(&col->lock);
+    return DB_SUCCESS;
+}
+
+db_error_t db_drop_index(const char* db_name, const char* collection_name, const char* field_name) {
+    Database* db = find_database(db_name);
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
+    
+    Collection* col = find_collection(db, collection_name);
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
+    
+    pthread_rwlock_wrlock(&col->lock);
+    
+    int found = 0;
+    for (size_t i = 0; i < col->indexed_field_count; i++) {
+        if (strcmp(col->indexed_fields[i], field_name) == 0) {
+            found = 1;
+            free(col->indexed_fields[i]);
+            for (size_t j = i; j < col->indexed_field_count - 1; j++) {
+                col->indexed_fields[j] = col->indexed_fields[j+1];
+            }
+            col->indexed_field_count--;
+            break;
+        }
+    }
+    
+    if (!found) {
+        pthread_rwlock_unlock(&col->lock);
+        return DB_ERROR_INDEX_NOT_FOUND;
+    }
+    
+    char** keys_to_delete = NULL;
+    size_t key_count = 0;
+    char prefix[256];
+    snprintf(prefix, sizeof(prefix), "__index__:%s:", field_name);
+    
+    for (int layer_idx = 0; layer_idx < col->tree.layer_count; layer_idx++) {
+        Layer* layer = &col->tree.layers[layer_idx];
+        for (int elem_idx = 0; elem_idx < layer->element_count; elem_idx++) {
+            Element* elem = &layer->elements[elem_idx];
+            if (strncmp(elem->key, prefix, strlen(prefix)) == 0) {
+                keys_to_delete = realloc(keys_to_delete, (key_count + 1) * sizeof(char*));
+                if (!keys_to_delete) {
+                    pthread_rwlock_unlock(&col->lock);
+                    return DB_ERROR_MEMORY_ALLOCATION;
+                }
+                keys_to_delete[key_count] = strdup(elem->key);
+                if (!keys_to_delete[key_count]) {
+                    for (size_t k = 0; k < key_count; k++) {
+                        free(keys_to_delete[k]);
+                    }
+                    free(keys_to_delete);
+                    pthread_rwlock_unlock(&col->lock);
+                    return DB_ERROR_MEMORY_ALLOCATION;
+                }
+                key_count++;
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < key_count; i++) {
+        smt_delete(&col->tree, keys_to_delete[i]);
+        free(keys_to_delete[i]);
+    }
+    free(keys_to_delete);
+    
+    pthread_rwlock_unlock(&col->lock);
+    return DB_SUCCESS;
+}
+
 static db_error_t deserialize_database(Database* db, int fd) {
     struct stat st;
     if (fstat(fd, &st) == -1) return DB_ERROR_IO_ERROR;

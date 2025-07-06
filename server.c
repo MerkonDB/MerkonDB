@@ -800,7 +800,58 @@ static void* client_handler(void* arg) {
                     json_decref(verification_results);
                 }
             }
+        } 
+        else if (strcmp(operation, "db_list_indexes") == 0) {
+    const char* db_name = json_string_value(json_object_get(params, "db_name"));
+    const char* collection_name = json_string_value(json_object_get(params, "collection_name"));
+    if (!db_name || !collection_name) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Missing required parameters"));
+    } else if (!rbac_has_db_permission(&g_rbac, username, db_name, PERM_READ)) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Permission denied"));
+    } else {
+        char** indexed_fields;
+        size_t count;
+        db_error_t err = db_list_indexes(db_name, collection_name, &indexed_fields, &count);
+        if (err == DB_SUCCESS) {
+            json_t* fields_array = json_array();
+            for (size_t i = 0; i < count; i++) {
+                json_array_append_new(fields_array, json_string(indexed_fields[i]));
+                free(indexed_fields[i]);
+            }
+            free(indexed_fields);
+            json_object_set_new(response, "status", json_string("success"));
+            json_object_set_new(response, "indexed_fields", fields_array);
         } else {
+            json_object_set_new(response, "status", json_string("error"));
+            json_object_set_new(response, "error_message", json_string(db_error_string(err)));
+        }
+    }
+}
+else if (strcmp(operation, "db_drop_index") == 0) {
+    const char* db_name = json_string_value(json_object_get(params, "db_name"));
+    const char* collection_name = json_string_value(json_object_get(params, "collection_name"));
+    const char* field_name = json_string_value(json_object_get(params, "field_name"));
+    if (!db_name || !collection_name || !field_name) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Missing required parameters"));
+    } else if (!rbac_has_db_permission(&g_rbac, username, db_name, PERM_WRITE)) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "error_message", json_string("Permission denied"));
+    } else {
+        db_error_t err = db_drop_index(db_name, collection_name, field_name);
+        if (err == DB_SUCCESS) {
+            json_object_set_new(response, "status", json_string("success"));
+        } else {
+            json_object_set_new(response, "status", json_string("error"));
+            json_object_set_new(response, "error_message", json_string(db_error_string(err)));
+        }
+    }
+}
+
+
+        else {
             json_object_set_new(response, "status", json_string("error"));
             json_object_set_new(response, "error_message", json_string("Unknown operation"));
         }

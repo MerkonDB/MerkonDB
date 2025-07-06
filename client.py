@@ -3,8 +3,6 @@ import json
 import cmd
 import sys
 import struct
-import shlex
-import re
 from colorama import Fore, Style
 
 class MerkonDBClient(cmd.Cmd):
@@ -71,11 +69,7 @@ class MerkonDBClient(cmd.Cmd):
         try:
             message = json.dumps({
                 "operation": operation,
-                "params": params,
-                "auth": {
-                    "username": self.username,
-                    "password": self.password
-                }
+                "params": params
             })
             length = len(message)
             self.sock.sendall(struct.pack('!I', length))
@@ -95,12 +89,11 @@ class MerkonDBClient(cmd.Cmd):
                 elif "collections" in resp_json:
                     print(f"{Fore.GREEN}Available collections:{Style.RESET_ALL}\n", json.dumps(resp_json["collections"], indent=2))
                 elif "value" in resp_json:
-                    print(f"{Fore.GREEN}Record value:{Style.RESET_ALL}")
                     try:
                         parsed_value = json.loads(resp_json["value"])
-                        print(json.dumps(parsed_value, indent=2))
-                    except (json.JSONDecodeError, TypeError):
-                        print(json.dumps(resp_json["value"], indent=2))
+                        print(f"{Fore.GREEN}Record value:{Style.RESET_ALL}\n", json.dumps(parsed_value, indent=2))
+                    except json.JSONDecodeError:
+                        print(f"{Fore.GREEN}Record value:{Style.RESET_ALL}\n", resp_json["value"])
                 elif "exists" in resp_json:
                     status = "exists" if resp_json["exists"] else "does not exist"
                     print(f"{Fore.GREEN}Status:{Style.RESET_ALL} {status}")
@@ -112,39 +105,27 @@ class MerkonDBClient(cmd.Cmd):
                 elif "stats" in resp_json:
                     print(f"{Fore.GREEN}Database statistics:{Style.RESET_ALL}\n", json.dumps(resp_json["stats"], indent=2))
                 elif "keys" in resp_json and "values" in resp_json:
-                    print(f"{Fore.GREEN}Collection records:{Style.RESET_ALL}")
-                    records = {}
-                    for k, v in zip(resp_json["keys"], resp_json["values"]):
-                        if isinstance(v, str):
-                            try:
-                                parsed_value = json.loads(v)  # Parse the JSON string into a Python object
-                                records[k] = parsed_value
-                            except json.JSONDecodeError:
-                                records[k] = v  # If parsing fails, use the raw string
-                        else:
-                            records[k] = v  # If not a string, use as is
-                    print(json.dumps(records, indent=2))
+                    parsed_values = []
+                    for val in resp_json["values"]:
+                        try:
+                            parsed_val = json.loads(val)
+                        except json.JSONDecodeError:
+                            parsed_val = val
+                        parsed_values.append(parsed_val)
+                    print(f"{Fore.GREEN}Collection records:{Style.RESET_ALL}\n", json.dumps(dict(zip(resp_json["keys"], parsed_values)), indent=2))
                 elif "keys" in resp_json:
                     print(f"{Fore.GREEN}Matching keys:{Style.RESET_ALL}\n", json.dumps(resp_json["keys"], indent=2))
                 elif "root_hash" in resp_json:
-                    print(f"{Fore.GREEN}Current root hash:{Style.RESET_ALL}\n", json.dumps(resp_json["root_hash"], indent=2))
+                    print(f"{Fore.GREEN}Current root_hash:{Style.RESET_ALL}\n", json.dumps(resp_json["root_hash"], indent=2))
                 elif "verification_results" in resp_json:
                     print(f"{Fore.GREEN}Integrity verification results:{Style.RESET_ALL}\n", json.dumps(resp_json["verification_results"], indent=2))
+                elif "indexed_fields" in resp_json:
+                    print(f"{Fore.GREEN}Indexed fields:{Style.RESET_ALL}\n", json.dumps(resp_json["indexed_fields"], indent=2))
                 else:
                     print(f"{Fore.GREEN}✓ Operation completed successfully{Style.RESET_ALL}")
             else:
                 print(f"{Fore.RED}✗ Error: {resp_json.get('error_message', 'Unknown error')}{Style.RESET_ALL}")
 
-        except json.JSONDecodeError as e:
-            print(f"{Fore.RED}✗ Communication error: Invalid response format ({e}){Style.RESET_ALL}")
-            self.sock.close()
-            self.connect()
-            self.send_auth()
-        except ConnectionError as e:
-            print(f"{Fore.RED}✗ Communication error: Connection issue ({e}){Style.RESET_ALL}")
-            self.sock.close()
-            self.connect()
-            self.send_auth()
         except Exception as e:
             print(f"{Fore.RED}✗ Communication error: {e}{Style.RESET_ALL}")
             self.sock.close()
@@ -171,9 +152,10 @@ class MerkonDBClient(cmd.Cmd):
             'batch insert': 'batch_insert',
             'save all': 'save_all',
             'load all': 'load_all',
-            #'find all':'find_all',
             'create index': 'create_index',
-            'find by': 'find_by'
+            'find by': 'find_by',
+            'list indexes': 'list_indexes',
+            'drop index': 'drop_index'
         }
         
         for cmd, replacement in space_commands.items():
@@ -296,23 +278,15 @@ Usage: stats [<db_name>]"""
 
     def do_insert(self, arg):
         """Insert a record into a collection
-        Usage: insert <collection_name> <key> <value>"""
+    Usage: insert <collection_name> <key> <value>"""
         args = arg.split(maxsplit=2)
         if len(args) != 3:
             print(f"{Fore.RED}✗ Error: Usage: insert <collection_name> <key> <value>{Style.RESET_ALL}")
             return
-        
-        # Try to parse as JSON first
-        try:
-            json_value = json.loads(args[2])
-            value = json.dumps(json_value)  # This will be properly formatted JSON
-        except json.JSONDecodeError:
-            value = args[2]  # Fall back to raw string if not JSON
-        
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
-        
+        value = args[2].strip("'")  # Strip single quotes
         self.send_command("db_insert", {
             "db_name": self.current_db,
             "collection_name": args[0],
@@ -331,7 +305,6 @@ Usage: find <collection_name> <key>
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
-        
         if args[0] == "all":
             if len(args) != 2:
                 print(f"{Fore.RED}✗ Error: Usage: find all <collection_name>{Style.RESET_ALL}")
@@ -352,23 +325,15 @@ Usage: find <collection_name> <key>
 
     def do_update(self, arg):
         """Update a record in a collection
-        Usage: update <collection_name> <key> <value>"""
+    Usage: update <collection_name> <key> <value>"""
         args = arg.split(maxsplit=2)
         if len(args) != 3:
             print(f"{Fore.RED}✗ Error: Usage: update <collection_name> <key> <value>{Style.RESET_ALL}")
             return
-        
-        # Try to parse as JSON first
-        try:
-            json_value = json.loads(args[2])
-            value = json.dumps(json_value)  # This will be properly formatted JSON
-        except json.JSONDecodeError:
-            value = args[2]  # Fall back to raw string if not JSON
-        
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
-        
+        value = args[2].strip("'")  # Strip single quotes
         self.send_command("db_update", {
             "db_name": self.current_db,
             "collection_name": args[0],
@@ -394,17 +359,17 @@ Usage: delete <collection_name> <key>"""
 
     def do_batch_insert(self, arg):
         """Batch insert records
-Usage: batch insert <collection_name> <key1>=<value1> <key2>=<value2> ..."""
-        args = arg.split(maxsplit=2)
-        if len(args) < 3:
+    Usage: batch insert <collection_name> <key1>=<value1> <key2>=<value2> ..."""
+        args = arg.split(maxsplit=1)
+        if len(args) != 2:
             print(f"{Fore.RED}✗ Error: Usage: batch insert <collection_name> <key1>=<value1> <key2>=<value2> ...{Style.RESET_ALL}")
             return
         if not self.current_db:
             print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
             return
-
-        collection_name = args[1]
-        pairs = args[2].split()
+        collection_name = args[0]
+        pairs_str = args[1]
+        pairs = pairs_str.split()
         keys = []
         values = []
         for pair in pairs:
@@ -412,9 +377,9 @@ Usage: batch insert <collection_name> <key1>=<value1> <key2>=<value2> ..."""
                 print(f"{Fore.RED}✗ Error: Invalid key-value pair format: {pair}{Style.RESET_ALL}")
                 return
             key, value = pair.split('=', 1)
+            value = value.strip("'")  # Strip single quotes
             keys.append(key)
             values.append(value)
-        
         self.send_command("db_batch_insert", {
             "db_name": self.current_db,
             "collection_name": collection_name,
@@ -476,41 +441,31 @@ Usage: verify <collection_name> <key> <value> <proof_json>"""
 
     def do_save(self, arg):
         """Save a database
-Usage: save [<db_name>]
-       save all"""
-        if not arg:
-            if not self.current_db:
-                print(f"{Fore.RED}✗ Error: Usage: save <db_name> or save all, or select a database with 'use'{Style.RESET_ALL}")
-                return
-            self.send_command("db_save", {"db_name": self.current_db})
-        elif arg == "all":
-            self.send_command("db_save_all", {})
-        else:
-            self.send_command("db_save", {"db_name": arg})
+Usage: save [<db_name>]"""
+        if not arg and not self.current_db:
+            print(f"{Fore.RED}✗ Error: Usage: save <db_name> or select a database with 'use'{Style.RESET_ALL}")
+            return
+        db_name = arg or self.current_db
+        self.send_command("db_save", {"db_name": db_name})
 
     def do_load(self, arg):
         """Load a database
-Usage: load [<db_name>]
-       load all"""
-        if not arg:
-            if not self.current_db:
-                print(f"{Fore.RED}✗ Error: Usage: load <db_name> or load all, or select a database with 'use'{Style.RESET_ALL}")
-                return
-            self.send_command("db_load", {"db_name": self.current_db})
-        elif arg == "all":
-            self.send_command("db_load_all", {})
-        else:
-            self.send_command("db_load", {"db_name": arg})
+Usage: load [<db_name>]"""
+        if not arg and not self.current_db:
+            print(f"{Fore.RED}✗ Error: Usage: load <db_name> or select a database with 'use'{Style.RESET_ALL}")
+            return
+        db_name = arg or self.current_db
+        self.send_command("db_load", {"db_name": db_name})
 
     def do_save_all(self, arg):
         """Save all databases
 Usage: save all"""
-        self.do_save("all")
+        self.send_command("db_save_all", {})
 
     def do_load_all(self, arg):
         """Load all databases
 Usage: load all"""
-        self.do_load("all")
+        self.send_command("db_load_all", {})
 
     def do_compact(self, arg):
         """Compact a database
@@ -531,7 +486,7 @@ Usage: verify integrity [<db_name>]"""
         self.send_command("db_verify_integrity", {"db_name": db_name})
 
     def do_add_user(self, arg):
-        """Add a new user (requires admin permissions)
+        """Add a new user
 Usage: add user <username> <password>"""
         args = arg.split()
         if len(args) != 2:
@@ -543,7 +498,7 @@ Usage: add user <username> <password>"""
         })
 
     def do_remove_user(self, arg):
-        """Remove a user (requires admin permissions)
+        """Remove a user
 Usage: remove user <username>"""
         if not arg:
             print(f"{Fore.RED}✗ Error: Usage: remove user <username>{Style.RESET_ALL}")
@@ -551,36 +506,20 @@ Usage: remove user <username>"""
         self.send_command("rbac_remove_user", {"username": arg})
 
     def do_add_role(self, arg):
-        """Add a new role (requires admin permissions)
-Usage: add role <role_name> <permissions>
-       Permissions: read,write,create,delete,admin (comma-separated)"""
+        """Add a new role
+Usage: add role <role_name> <permissions>"""
         args = arg.split(maxsplit=1)
         if len(args) != 2:
             print(f"{Fore.RED}✗ Error: Usage: add role <role_name> <permissions>{Style.RESET_ALL}")
             return
-        permissions_str = args[1].split(',')
-        perm_value = 0
-        perm_map = {
-            "read": 1,
-            "write": 2,
-            "create": 4,
-            "delete": 8,
-            "admin": 16
-        }
-        for p in permissions_str:
-            p = p.strip().lower()
-            if p in perm_map:
-                perm_value |= perm_map[p]
-            else:
-                print(f"{Fore.RED}✗ Error: Invalid permission: {p}{Style.RESET_ALL}")
-                return
+        permissions = args[1]
         self.send_command("rbac_add_role", {
             "role_name": args[0],
-            "permissions": perm_value
+            "permissions": permissions
         })
 
     def do_remove_role(self, arg):
-        """Remove a role (requires admin permissions)
+        """Remove a role
 Usage: remove role <role_name>"""
         if not arg:
             print(f"{Fore.RED}✗ Error: Usage: remove role <role_name>{Style.RESET_ALL}")
@@ -588,7 +527,7 @@ Usage: remove role <role_name>"""
         self.send_command("rbac_remove_role", {"role_name": arg})
 
     def do_assign_role(self, arg):
-        """Assign a role to a user (requires admin permissions)
+        """Assign a role to a user
 Usage: assign role <username> <role_name>"""
         args = arg.split()
         if len(args) != 2:
@@ -600,7 +539,7 @@ Usage: assign role <username> <role_name>"""
         })
 
     def do_revoke_role(self, arg):
-        """Revoke a role from a user (requires admin permissions)
+        """Revoke a role from a user
 Usage: revoke role <username> <role_name>"""
         args = arg.split()
         if len(args) != 2:
@@ -613,7 +552,7 @@ Usage: revoke role <username> <role_name>"""
 
     def do_create_index(self, arg):
         """Create an index on a field in a collection
-    Usage: create index <collection_name> <field_name>"""
+Usage: create index <collection_name> <field_name>"""
         args = arg.split()
         if len(args) != 2:
             print(f"{Fore.RED}✗ Error: Usage: create index <collection_name> <field_name>{Style.RESET_ALL}")
@@ -627,46 +566,54 @@ Usage: revoke role <username> <role_name>"""
             "field_name": args[1]
         })
 
-    
+    def do_list_indexes(self, arg):
+        """List indexes in a collection
+Usage: list indexes <collection_name>"""
+        if not arg:
+            print(f"{Fore.RED}✗ Error: Collection name required{Style.RESET_ALL}")
+            return
+        if not self.current_db:
+            print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
+            return
+        self.send_command("db_list_indexes", {
+            "db_name": self.current_db,
+            "collection_name": arg
+        })
+
+    def do_drop_index(self, arg):
+        """Drop an index from a collection
+Usage: drop index <collection_name> <field_name>"""
+        args = arg.split()
+        if len(args) != 2:
+            print(f"{Fore.RED}✗ Error: Usage: drop index <collection_name> <field_name>{Style.RESET_ALL}")
+            return
+        if not self.current_db:
+            print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
+            return
+        self.send_command("db_drop_index", {
+            "db_name": self.current_db,
+            "collection_name": args[0],
+            "field_name": args[1]
+        })
 
     def do_find_by(self, arg):
         """Find records by field value
-    Usage: find by <collection_name> <field_name>=<field_value>"""
-        try:
-            # Split into collection name and query parts
-            parts = arg.split(maxsplit=1)
-            if len(parts) != 2:
-                print(f"{Fore.RED}✗ Error: Usage: find by <collection_name> <field_name>=<field_value>{Style.RESET_ALL}")
-                return
-                
-            collection_name, query = parts
-            
-            # Split the query into field_name and field_value
-            if '=' not in query:
-                print(f"{Fore.RED}✗ Error: Invalid query format - must be field=value{Style.RESET_ALL}")
-                return
-                
-            field_name, field_value = query.split('=', 1)
-            field_value = field_value.strip()
-            
-            # Remove surrounding quotes if present
-            if (field_value.startswith('"') and field_value.endswith('"')) or \
-               (field_value.startswith("'") and field_value.endswith("'")):
-                field_value = field_value[1:-1]
-            
-            if not self.current_db:
-                print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
-                return
-                
-            self.send_command("db_query_by_field", {
-                "db_name": self.current_db,
-                "collection_name": collection_name,
-                "field_name": field_name.strip(),
-                "field_value": field_value
-            })
-        
-        except Exception as e:
-            print(f"{Fore.RED}✗ Error processing find by command: {e}{Style.RESET_ALL}")
+Usage: find by <collection_name> <field>=<value>"""
+        args = arg.split(maxsplit=1)
+        if len(args) != 2 or '=' not in args[1]:
+            print(f"{Fore.RED}✗ Error: Usage: find by <collection_name> <field>=<value>{Style.RESET_ALL}")
+            return
+        if not self.current_db:
+            print(f"{Fore.RED}✗ Error: No database selected. Use 'use <db_name>' first.{Style.RESET_ALL}")
+            return
+        collection_name = args[0]
+        field, value = args[1].split('=', 1)
+        self.send_command("db_query_by_field", {
+            "db_name": self.current_db,
+            "collection_name": collection_name,
+            "field_name": field,
+            "field_value": value
+        })
 
     def do_exit(self, arg):
         """Exit the shell"""
@@ -689,7 +636,7 @@ Usage: revoke role <username> <role_name>"""
                 return
             doc = func.__doc__
             if doc:
-                print(f"\n{Fore.CYAN}MerkonDB Query Language(MQL) Help:{Style.RESET_ALL}")
+                print(f"\n{Fore.CYAN}Command Help:{Style.RESET_ALL}")
                 print(f"{Fore.YELLOW}{doc}{Style.RESET_ALL}")
             else:
                 print(f"{Fore.RED}✗ No help available for {arg}{Style.RESET_ALL}")
@@ -721,7 +668,9 @@ Usage: revoke role <username> <role_name>"""
                     ("batch insert <col> <k=v>...", "Insert multiple records")
                 ],
                 "Indexing": [
-                    ("create index <col> <field>", "Create index on a field")
+                    ("create index <col> <field>", "Create index on a field"),
+                    ("list indexes <col>", "List indexed fields in collection"),
+                    ("drop index <col> <field>", "Remove index from field")
                 ],
                 "Integrity Verification": [
                     ("root <collection>", "Get Merkle root hash"),
