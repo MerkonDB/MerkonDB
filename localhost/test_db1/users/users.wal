@@ -1,8 +1,0 @@
-INSERT user1 {"name":"Alice","age":30,"email":"alice@example.com","active":true}
-INSERT user2 {"name":"Bob","age":25,"email":"bob@example.com","active":true}
-INSERT user3 {"name":"Charlie","age":35,"email":"charlie@example.com","active":false}
-INSERT empty_user {}
-INSERT null_values {"name":null,"age":null}
-INSERT special_chars {"name":"Jöhn Dœ","email":"jöhn@exämple.com"}
-INSERT long_string {"notes":"This is an extremely long string value that should test the WAL handling of large data entries. It contains many characters to ensure proper logging and recovery."}
-INSERT unicode_user {"name":"田中太郎","email":"tanaka@example.jp"}

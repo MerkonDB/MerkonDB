@@ -19,7 +19,7 @@
 DatabaseManager g_db_manager = {0};
 
 // Helper functions
-static Database* find_database(const char* db_name) {
+Database* find_database(const char* db_name) {
     if (!db_name || !g_db_manager.is_initialized) return NULL;
     
     pthread_mutex_lock(&g_db_manager.lock);
@@ -34,7 +34,7 @@ static Database* find_database(const char* db_name) {
     return NULL;
 }
 
-static Collection* find_collection(Database* db, const char* collection_name) {
+Collection* find_collection(Database* db, const char* collection_name) {
     if (!db || !collection_name) return NULL;
     
     pthread_rwlock_rdlock(&db->lock);
@@ -716,10 +716,9 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
         return DB_ERROR_MEMORY_ALLOCATION;
     }
 
-    // Initialize persistence layer - ensure database directory exists first
+    // Create collection directory structure
     char db_dir[2048];
-    snprintf(db_dir, sizeof(db_dir), "%s/%s",
-             g_db_manager.persistence_path, db_name);
+    snprintf(db_dir, sizeof(db_dir), "%s/%s", g_db_manager.persistence_path, db_name);
     
     // Create database directory if it doesn't exist
     if (mkdir(db_dir, 0755) == -1 && errno != EEXIST) {
@@ -730,28 +729,27 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
         return DB_ERROR_IO_ERROR;
     }
 
-    // Now create collection directory
     char col_dir[2048];
     snprintf(col_dir, sizeof(col_dir), "%s/%s/%s",
              g_db_manager.persistence_path, db_name, collection_name);
-    
-    // Create collection directory with proper permissions
-    if (mkdir(col_dir, 0755) == -1) {
-        if (errno != EEXIST) {
-            pthread_rwlock_destroy(&col->lock);
-            smt_cleanup(&col->tree);
-            db->collection_count--;
-            pthread_rwlock_unlock(&db->lock);
-            return DB_ERROR_IO_ERROR;
-        }
-        // Directory exists, check permissions
-        if (access(col_dir, R_OK | W_OK | X_OK) != 0) {
-            pthread_rwlock_destroy(&col->lock);
-            smt_cleanup(&col->tree);
-            db->collection_count--;
-            pthread_rwlock_unlock(&db->lock);
-            return DB_ERROR_IO_ERROR;
-        }
+
+    // Create collection directory
+    if (mkdir(col_dir, 0755) == -1 && errno != EEXIST) {
+        pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return DB_ERROR_IO_ERROR;
+    }
+
+    // Verify directory was created and is accessible
+    struct stat st;
+    if (stat(col_dir, &st) == -1 || !S_ISDIR(st.st_mode)) {
+        pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return DB_ERROR_IO_ERROR;
     }
 
     // Initialize persistence manager
@@ -762,12 +760,6 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
         db->collection_count--;
         pthread_rwlock_unlock(&db->lock);
         return perr;
-    }
-
-    // Initialize indexed fields array
-    col->indexed_field_count = 0;
-    for (int i = 0; i < MAX_INDEX_FIELDS; i++) {
-        col->indexed_fields[i] = NULL;
     }
 
     // Update database stats
@@ -1516,29 +1508,50 @@ db_error_t db_save(const char* db_name) {
     for (size_t i = 0; i < db->collection_count; ++i) {
         Collection* col = &db->collections[i];
         if (!col->is_open) continue;
+        
         pthread_rwlock_wrlock(&col->lock);
-        persistence_flush(&col->pm);
+        db_error_t err = persistence_flush(&col->pm);
+        if (err != DB_SUCCESS) {
+            pthread_rwlock_unlock(&col->lock);
+            return err;
+        }
         pthread_rwlock_unlock(&col->lock);
     }
 
+    // Save database metadata
     char path[2048];
     snprintf(path, sizeof(path), "%s/%s%s", g_db_manager.persistence_path, db_name, DB_FILE_EXTENSION);
 
     char temp_path[2048];
     snprintf(temp_path, sizeof(temp_path), "%s%s", path, TEMP_FILE_SUFFIX);
 
-    int fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd == -1) return DB_ERROR_IO_ERROR;
+    FILE* fp = fopen(temp_path, "w");
+    if (!fp) return DB_ERROR_IO_ERROR;
 
-    db_error_t err = serialize_database(db, fd);
-    close(fd);
+    json_t* root = json_object();
+    json_object_set_new(root, "name", json_string(db->name));
+    json_object_set_new(root, "created_at", json_integer(db->stats.created_at));
+    json_object_set_new(root, "last_modified", json_integer(db->stats.last_modified));
 
-    if (err != DB_SUCCESS) {
-        unlink(temp_path);
-        return err;
+    json_t* collections = json_array();
+    for (size_t i = 0; i < db->collection_count; i++) {
+        Collection* col = &db->collections[i];
+        if (!col->is_open) continue;
+
+        json_t* col_obj = json_object();
+        json_object_set_new(col_obj, "name", json_string(col->name));
+        json_object_set_new(col_obj, "created_at", json_integer(col->created_at));
+        json_object_set_new(col_obj, "last_modified", json_integer(col->last_modified));
+        json_array_append_new(collections, col_obj);
     }
+    json_object_set_new(root, "collections", collections);
 
-    if (rename(temp_path, path) == -1) {
+    json_dumpf(root, fp, JSON_COMPACT);
+    json_decref(root);
+    fclose(fp);
+
+    // Atomic rename
+    if (rename(temp_path, path) != 0) {
         unlink(temp_path);
         return DB_ERROR_IO_ERROR;
     }
@@ -1578,42 +1591,64 @@ db_error_t db_load(const char* db_name) {
 }
 
 db_error_t db_save_all() {
-    if (!g_db_manager.is_initialized) return DB_ERROR_INVALID_PARAMETER;
-    if (g_db_manager.persistence_path[0] == '\0') return DB_ERROR_IO_ERROR;
-
-    pthread_mutex_lock(&g_db_manager.lock);
-
-    char* db_names[MAX_DATABASES];
-    size_t db_count = 0;
-    for (size_t i = 0; i < g_db_manager.db_count; i++) {
-        if (g_db_manager.databases[i].is_open) {
-            db_names[db_count] = strdup(g_db_manager.databases[i].name);
-            if (!db_names[db_count]) {
-                for (size_t j = 0; j < db_count; j++) {
-                    free(db_names[j]);
-                }
-                pthread_mutex_unlock(&g_db_manager.lock);
-                return DB_ERROR_MEMORY_ALLOCATION;
-            }
-            db_count++;
-        }
+    if (!g_db_manager.is_initialized) {
+        return DB_ERROR_INVALID_PARAMETER;
     }
-
-    pthread_mutex_unlock(&g_db_manager.lock);
-
+    
+    // Save metadata first
+    char meta_path[2048];
+    snprintf(meta_path, sizeof(meta_path), "%s/databases.meta", g_db_manager.persistence_path);
+    
+    json_t* root = json_object();
+    json_t* dbs = json_array();
+    
+    for (size_t i = 0; i < g_db_manager.db_count; i++) {
+        Database* db = &g_db_manager.databases[i];
+        json_t* db_obj = json_object();
+        json_object_set_new(db_obj, "name", json_string(db->name));
+        json_object_set_new(db_obj, "is_open", json_boolean(db->is_open));
+        
+        json_t* cols = json_array();
+        for (size_t j = 0; j < db->collection_count; j++) {
+            Collection* col = &db->collections[j];
+            json_t* col_obj = json_object();
+            json_object_set_new(col_obj, "name", json_string(col->name));
+            json_object_set_new(col_obj, "is_open", json_boolean(col->is_open));
+            json_array_append_new(cols, col_obj);
+        }
+        json_object_set_new(db_obj, "collections", cols);
+        json_array_append_new(dbs, db_obj);
+    }
+    json_object_set_new(root, "databases", dbs);
+    
+    // Atomic write using rename
+    char temp_path[2048];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", meta_path);
+    
+    FILE* fp = fopen(temp_path, "w");
+    if (!fp) {
+        json_decref(root);
+        return DB_ERROR_IO_ERROR;
+    }
+    
+    json_dumpf(root, fp, JSON_COMPACT);
+    fclose(fp);
+    json_decref(root);
+    
+    if (rename(temp_path, meta_path) != 0) {
+        unlink(temp_path);
+        return DB_ERROR_IO_ERROR;
+    }
+    
+    // Then save each database
     db_error_t final_error = DB_SUCCESS;
-    for (size_t i = 0; i < db_count; i++) {
-        db_error_t err = db_save(db_names[i]);
+    for (size_t i = 0; i < g_db_manager.db_count; i++) {
+        db_error_t err = db_save(g_db_manager.databases[i].name);
         if (err != DB_SUCCESS) {
             final_error = err;
-            for (size_t j = i; j < db_count; j++) {
-                free(db_names[j]);
-            }
-            break;
         }
-        free(db_names[i]);
     }
-
+    
     return final_error;
 }
 
@@ -1694,6 +1729,57 @@ db_error_t db_verify_integrity(const char* db_name, json_t** verification_result
     pthread_rwlock_unlock(&db->lock);
     return final_error;
 }
+
+static pthread_t autosave_thread;
+static int autosave_running = 0;
+
+// ... existing code ...
+
+static void* autosave_worker(void* arg) {
+    int interval = *(int*)arg;
+    free(arg);
+    
+    while (autosave_running) {
+        sleep(interval);
+        printf("[AUTOSAVE] Periodic save started...\n");
+        db_error_t err = db_save_all();
+        if (err != DB_SUCCESS) {
+            fprintf(stderr, "[AUTOSAVE] Failed: %s\n", db_error_string(err));
+        } else {
+            printf("[AUTOSAVE] Completed successfully\n");
+        }
+    }
+    return NULL;
+}
+
+db_error_t db_autosave_start(int interval_seconds) {
+    if (autosave_running) return DB_SUCCESS;
+    
+    if (interval_seconds <= 0) {
+        return DB_ERROR_INVALID_PARAMETER;
+    }
+    
+    int* interval = malloc(sizeof(int));
+    if (!interval) return DB_ERROR_MEMORY_ALLOCATION;
+    *interval = interval_seconds;
+    
+    autosave_running = 1;
+    if (pthread_create(&autosave_thread, NULL, autosave_worker, interval) != 0) {
+        free(interval);
+        autosave_running = 0;
+        return DB_ERROR_MEMORY_ALLOCATION;
+    }
+    
+    return DB_SUCCESS;
+}
+
+void db_autosave_stop() {
+    if (!autosave_running) return;
+    
+    autosave_running = 0;
+    pthread_join(autosave_thread, NULL);
+}
+
 
 db_error_t db_compact(const char* db_name) {
     if (!db_name) return DB_ERROR_NULL_POINTER;

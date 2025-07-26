@@ -7,67 +7,64 @@ use test_db1
 open test_db2
 close test_db2
 stats test_db1
-stats
 drop database test_db2
 list databases
 create collection users
 create collection products
-list collections
-exists collection users
-exists collection non_existent_collection
-drop collection products
-list collections
-insert users user1 '{"name": "Alice", "age": 30, "email": "alice@example.com"}'
-insert users user2 '{"name": "Bob", "age": 25, "email": "bob@example.com"}'
-find users user1
-find all users
-update users user1 '{"name": "Alice", "age": 31, "email": "alice@example.com"}'
-find users user1
-delete users user2
-find all users
-batch insert users user3='{"name": "Charlie", "age": 28}' user4='{"name": "Dana", "age": 35}'
-find all users
-create index users age
-create index users email
-list indexes users
-find by users age=28
-find by users email="alice@example.com"
-drop index users email
-list indexes users
-root users
-proof users user1
-verify users user1 '{"name": "Alice", "age": 31, "email": "alice@example.com"}' '<paste_proof_json_here>'
-verify integrity test_db1
-save test_db1
-save all
-load test_db1
-load all
-add user admin1 adminpass
-add user viewer1 viewerpass
-remove user viewer1
-add role admin "create,read,update,delete"
-add role viewer "read"
-assign role admin1 admin
-revoke role admin1 admin
-remove role viewer
-help
-help insert
-create database
-insert users
-find users
-update users user1
-delete users
-find users non_existent_key
-update users non_existent_key '{"name": "None"}'
-delete users non_existent_key
-create database mixed_db
-use mixed_db
+create collection inventory
 create collection orders
-insert orders order1 '{"product": "Laptop", "price": 999, "customer": "Alice"}'
-insert orders order2 '{"product": "Phone", "price": 699, "customer": "Bob"}'
-find all orders
-create index orders price
-find by orders price=699
-root orders
-save mixed_db
-drop database mixed_db
+create collection customers
+create collection transactions
+create collection logs
+create collection settings
+create collection backups
+create collection temp_data
+list collections
+insert users user1 '{"name":"Alice","age":30,"email":"alice@example.com","active":true}'
+insert users user2 '{"name":"Bob","age":25,"email":"bob@example.com","active":true}'
+insert users user3 '{"name":"Charlie","age":35,"email":"charlie@example.com","active":false}'
+insert products prod1 '{"name":"Laptop","price":999.99,"stock":15,"category":"electronics"}'
+insert products prod2 '{"name":"Phone","price":699.99,"stock":32,"category":"electronics"}'
+insert products prod3 '{"name":"Desk","price":199.99,"stock":8,"category":"furniture"}'
+insert products prod4 '{"name":"Chair","price":89.99,"stock":45,"category":"furniture"}'
+insert products prod5 '{"name":"Monitor","price":249.99,"stock":12,"category":"electronics"}'
+insert products prod6 '{"name":"Keyboard","price":59.99,"stock":67,"category":"electronics"}'
+insert products prod7 '{"name":"Mouse","price":29.99,"stock":83,"category":"electronics"}'
+insert products prod8 '{"name":"Notebook","price":4.99,"stock":120,"category":"stationery"}'
+insert products prod9 '{"name":"Pen","price":1.99,"stock":250,"category":"stationery"}'
+insert products prod10 '{"name":"Stapler","price":12.99,"stock":38,"category":"office"}'
+insert orders order1 '{"user":"user1","products":["prod1","prod6"],"total":1059.98,"date":"2023-05-15"}'
+insert orders order2 '{"user":"user2","products":["prod2","prod7"],"total":729.98,"date":"2023-05-16"}'
+insert orders order3 '{"user":"user3","products":["prod3","prod4","prod9"],"total":294.97,"date":"2023-05-17"}'
+insert orders order4 '{"user":"user1","products":["prod5","prod8","prod10"],"total":267.97,"date":"2023-05-18"}'
+insert orders order5 '{"user":"user2","products":["prod1","prod2","prod3"],"total":1899.97,"date":"2023-05-19"}'
+insert settings app_config '{"dark_mode":true,"font_size":14,"language":"en","notifications":{"email":true,"sms":false}}'
+insert logs log1 '{"timestamp":"2023-05-15T08:30:45Z","level":"INFO","message":"System started","user":"admin"}'
+insert logs log2 '{"timestamp":"2023-05-15T08:31:10Z","level":"DEBUG","message":"Database connected","duration_ms":125}'
+insert logs log3 '{"timestamp":"2023-05-15T09:45:22Z","level":"ERROR","message":"Connection timeout","retry_count":3}'
+insert users empty_user '{}'
+insert users null_values '{"name":null,"age":null}'
+insert users special_chars '{"name":"Jöhn Dœ","email":"jöhn@exämple.com"}'
+insert users long_string '{"notes":"This is an extremely long string value that should test the WAL handling of large data entries. It contains many characters to ensure proper logging and recovery."}'
+insert users unicode_user '{"name":"田中太郎","email":"tanaka@example.jp"}'
+insert inventory item1 '{"sku":"A100","quantity":0,"reorder_level":10}'
+insert inventory item2 '{"sku":"B200","quantity":1000,"reorder_level":100}'
+insert inventory item3 '{"sku":"C300","quantity":-5,"reorder_level":5}'
+insert inventory item4 '{"sku":"D400","quantity":3.14159,"reorder_level":2.5}'
+insert inventory item5 '{"sku":"E500","quantity":1e6,"reorder_level":1e3}'
+insert transactions tx1 '{"from":"user1","to":"user2","amount":50.00,"currency":"USD","timestamp":"2023-05-15T10:00:00Z"}'
+insert transactions tx2 '{"from":"user2","to":"user3","amount":25.00,"currency":"USD","timestamp":"2023-05-15T10:05:00Z"}'
+insert transactions tx3 '{"from":"user3","to":"user1","amount":10.00,"currency":"USD","timestamp":"2023-05-15T10:10:00Z"}'
+insert transactions tx4 '{"from":"user1","to":"user3","amount":15.00,"currency":"USD","timestamp":"2023-05-15T10:15:00Z"}'
+insert transactions tx5 '{"from":"user2","to":"user1","amount":30.00,"currency":"USD","timestamp":"2023-05-15T10:20:00Z"}'
+insert backups backup1 '{"timestamp":"2023-05-15T00:00:00Z","size_gb":42.5,"checksum":"a1b2c3d4e5f6","locations":["s3://backup1","nas:/backups/backup1"]}'
+insert backups backup2 '{"timestamp":"2023-05-14T00:00:00Z","size_gb":39.8,"checksum":"b2c3d4e5f6g7","locations":["s3://backup2","nas:/backups/backup2"]}'
+insert temp_data large_json '{"data":"'$(printf '%*s' 5000 | tr ' ' 'X')'","metadata":{"created":"2023-05-15","expires":"2023-06-15"}}'
+find users user1
+find products prod5
+find orders order3
+find logs log2
+find inventory item4
+find transactions tx1
+find backups backup1
+find temp_data large_json

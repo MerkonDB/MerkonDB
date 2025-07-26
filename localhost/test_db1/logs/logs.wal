@@ -1,3 +1,0 @@
-INSERT log1 {"timestamp":"2023-05-15T08:30:45Z","level":"INFO","message":"System started","user":"admin"}
-INSERT log2 {"timestamp":"2023-05-15T08:31:10Z","level":"DEBUG","message":"Database connected","duration_ms":125}
-INSERT log3 {"timestamp":"2023-05-15T09:45:22Z","level":"ERROR","message":"Connection timeout","retry_count":3}

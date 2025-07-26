@@ -1,5 +1,0 @@
-INSERT item1 {"sku":"A100","quantity":0,"reorder_level":10}
-INSERT item2 {"sku":"B200","quantity":1000,"reorder_level":100}
-INSERT item3 {"sku":"C300","quantity":-5,"reorder_level":5}
-INSERT item4 {"sku":"D400","quantity":3.14159,"reorder_level":2.5}
-INSERT item5 {"sku":"E500","quantity":1e6,"reorder_level":1e3}

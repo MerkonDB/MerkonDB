@@ -6,6 +6,8 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <openssl/evp.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 static db_error_t write_wal(PersistenceManager* pm, const char* operation, const char* key, const char* value) {
     if (!pm || !operation || !key) {
@@ -108,14 +110,18 @@ db_error_t persistence_init(PersistenceManager* pm, const char* collection_path,
         return DB_ERROR_MEMORY_ALLOCATION;
     }
 
-    // Create directory if it doesn't exist - with proper error handling
+    // Create directory structure with proper permissions
     if (mkdir(collection_path, 0755) == -1) {
         if (errno != EEXIST) {
-            // If directory doesn't exist and we can't create it
             persistence_cleanup(pm);
             return DB_ERROR_IO_ERROR;
         }
-        // Directory already exists, check if it's accessible
+        // Directory exists - verify permissions
+        struct stat st;
+        if (stat(collection_path, &st) == -1 || !S_ISDIR(st.st_mode)) {
+            persistence_cleanup(pm);
+            return DB_ERROR_IO_ERROR;
+        }
         if (access(collection_path, R_OK | W_OK | X_OK) != 0) {
             persistence_cleanup(pm);
             return DB_ERROR_IO_ERROR;
@@ -135,48 +141,116 @@ db_error_t persistence_init(PersistenceManager* pm, const char* collection_path,
     return persistence_load(pm);
 }
 
+// Add to persistence.c
+
 db_error_t persistence_load(PersistenceManager* pm) {
-    if (!pm) {
-        return DB_ERROR_NULL_POINTER;
+    if (!pm) return DB_ERROR_NULL_POINTER;
+    
+    // Clear any existing state
+    for (size_t i = 0; i < pm->sstable_count; i++) {
+        smt_cleanup(&pm->sstables[i]);
+    }
+    free(pm->sstables);
+    pm->sstables = NULL;
+    pm->sstable_count = 0;
+    pm->sstable_capacity = 0;
+    
+    smt_cleanup(&pm->memtable);
+    smt_init(&pm->memtable);
+
+    // Initialize SSTables array
+    pm->sstable_capacity = MAX_SSTABLES_INITIAL;
+    pm->sstables = malloc(pm->sstable_capacity * sizeof(SMT));
+    if (!pm->sstables) {
+        return DB_ERROR_MEMORY_ALLOCATION;
     }
 
-    // Load existing SSTables
-    for (size_t i = 0; ; i++) {
-        char sstable_path[2048];
-        snprintf(sstable_path, sizeof(sstable_path), "%s/sstable_%zu.dat", pm->collection_path, i);
+    // Load all SSTables in order
+    DIR* dir = opendir(pm->collection_path);
+    if (!dir) {
+        // Directory doesn't exist is not an error (new collection)
+        return DB_SUCCESS;
+    }
 
-        FILE* fp = fopen(sstable_path, "rb");
-        if (!fp) {
-            break; // No more SSTables
-        }
-
-        // Resize SSTables array if needed
-        if (pm->sstable_count >= pm->sstable_capacity) {
-            size_t new_capacity = pm->sstable_capacity * 2;
-            SMT* new_sstables = realloc(pm->sstables, new_capacity * sizeof(SMT));
-            if (!new_sstables) {
-                fclose(fp);
-                return DB_ERROR_MEMORY_ALLOCATION;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, "sstable_") == entry->d_name && 
+            strstr(entry->d_name, ".dat") != NULL) {
+            
+            // Extract SSTable number
+            unsigned sstable_num;
+            if (sscanf(entry->d_name, "sstable_%u.dat", &sstable_num) != 1) {
+                continue; // Skip malformed files
             }
-            pm->sstables = new_sstables;
-            pm->sstable_capacity = new_capacity;
+
+            char sstable_path[2048];
+            snprintf(sstable_path, sizeof(sstable_path), "%s/%s", 
+                    pm->collection_path, entry->d_name);
+            
+            FILE* fp = fopen(sstable_path, "rb");
+            if (!fp) {
+                closedir(dir);
+                return DB_ERROR_IO_ERROR;
+            }
+            
+            // Check if we need to expand SSTables array
+            if (pm->sstable_count >= pm->sstable_capacity) {
+                size_t new_capacity = pm->sstable_capacity * 2;
+                SMT* new_sstables = realloc(pm->sstables, new_capacity * sizeof(SMT));
+                if (!new_sstables) {
+                    fclose(fp);
+                    closedir(dir);
+                    return DB_ERROR_MEMORY_ALLOCATION;
+                }
+                pm->sstables = new_sstables;
+                pm->sstable_capacity = new_capacity;
+            }
+            
+            // Initialize and deserialize the SSTable
+            smt_init(&pm->sstables[pm->sstable_count]);
+            smt_error_t err = smt_deserialize(&pm->sstables[pm->sstable_count], fp);
+            fclose(fp);
+            
+            if (err != SMT_SUCCESS) {
+                smt_cleanup(&pm->sstables[pm->sstable_count]);
+                closedir(dir);
+                return (db_error_t)err;
+            }
+            
+            pm->sstable_count++;
         }
-
-        // Initialize and deserialize SSTable
-        smt_init(&pm->sstables[pm->sstable_count]);
-        smt_error_t err = smt_deserialize(&pm->sstables[pm->sstable_count], fp);
-        fclose(fp);
-
-        if (err != SMT_SUCCESS) {
-            smt_cleanup(&pm->sstables[pm->sstable_count]);
-            return (db_error_t)err;
-        }
-
-        pm->sstable_count++;
     }
+    closedir(dir);
 
     // Replay WAL to rebuild memtable
-    return replay_wal(pm);
+    char wal_path[2048];
+    snprintf(wal_path, sizeof(wal_path), "%s/%s.wal", 
+            pm->collection_path, pm->collection_name);
+    
+    FILE* fp = fopen(wal_path, "r");
+    if (!fp) {
+        // No WAL is not an error
+        return DB_SUCCESS;
+    }
+    
+    char operation[16];
+    char key[MAX_KEY_SIZE];
+    char value[MAX_VALUE_SIZE];
+    
+    while (fscanf(fp, "%15s %255s %1023[^\n]", operation, key, value) == 3) {
+        if (strcmp(value, "NULL") == 0) {
+            value[0] = '\0';
+        }
+        
+        if (strcmp(operation, "INSERT") == 0 || strcmp(operation, "UPDATE") == 0) {
+            smt_insert(&pm->memtable, key, value[0] ? value : NULL);
+        } else if (strcmp(operation, "DELETE") == 0) {
+            smt_delete(&pm->memtable, key);
+        }
+    }
+    
+    fclose(fp);
+    return DB_SUCCESS;
 }
 
 db_error_t persistence_insert(PersistenceManager* pm, const char* key, const char* value) {
@@ -378,31 +452,41 @@ db_error_t persistence_find_all(PersistenceManager* pm, char*** keys, char*** va
 }
 
 db_error_t persistence_flush(PersistenceManager* pm) {
-    if (!pm) {
-        return DB_ERROR_NULL_POINTER;
-    }
+    if (!pm) return DB_ERROR_NULL_POINTER;
 
     // Skip if memtable is empty
     if (pm->memtable.total_elements == 0) {
         return DB_SUCCESS;
     }
 
-    // Create SSTable file
+    // Create SSTable file with temp name first (atomic write)
     char sstable_path[2048];
-    snprintf(sstable_path, sizeof(sstable_path), "%s/sstable_%zu.dat", pm->collection_path, pm->sstable_count);
+    char temp_path[2048];
+    snprintf(sstable_path, sizeof(sstable_path), "%s/sstable_%zu.dat", 
+             pm->collection_path, pm->sstable_count);
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", sstable_path);
     
-    FILE* fp = fopen(sstable_path, "wb");
+    FILE* fp = fopen(temp_path, "wb");
     if (!fp) {
         return DB_ERROR_IO_ERROR;
     }
 
     // Serialize memtable to SSTable
     smt_error_t err = smt_serialize(&pm->memtable, fp);
-    fclose(fp);
+    if (fclose(fp) != 0) {
+        unlink(temp_path);
+        return DB_ERROR_IO_ERROR;
+    }
     
     if (err != SMT_SUCCESS) {
-        unlink(sstable_path);
+        unlink(temp_path);
         return (db_error_t)err;
+    }
+
+    // Atomically rename temp file to final name
+    if (rename(temp_path, sstable_path) != 0) {
+        unlink(temp_path);
+        return DB_ERROR_IO_ERROR;
     }
 
     // Add to SSTables array
@@ -417,7 +501,7 @@ db_error_t persistence_flush(PersistenceManager* pm) {
         pm->sstable_capacity = new_capacity;
     }
 
-    // Initialize and deserialize the new SSTable (to verify it)
+    // Initialize and verify the new SSTable
     smt_init(&pm->sstables[pm->sstable_count]);
     fp = fopen(sstable_path, "rb");
     if (!fp) {
@@ -441,14 +525,13 @@ db_error_t persistence_flush(PersistenceManager* pm) {
     smt_cleanup(&pm->memtable);
     smt_init(&pm->memtable);
 
-    // Reset WAL
+    // Reset WAL (create new empty one)
     if (pm->wal) {
         fclose(pm->wal);
-        
         char wal_path[2048];
-        snprintf(wal_path, sizeof(wal_path), "%s/%s.wal", pm->collection_path, pm->collection_name);
+        snprintf(wal_path, sizeof(wal_path), "%s/%s.wal", 
+                pm->collection_path, pm->collection_name);
         unlink(wal_path);
-        
         pm->wal = fopen(wal_path, "a");
         if (!pm->wal) {
             return DB_ERROR_IO_ERROR;

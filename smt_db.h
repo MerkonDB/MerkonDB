@@ -62,6 +62,13 @@ typedef struct {
 
 extern DatabaseManager g_db_manager;
 
+// In smt_db.h
+Database* find_database(const char* db_name);
+Collection* find_collection(Database* db, const char* collection_name);
+
+db_error_t db_autosave_start(int interval_seconds);
+void db_autosave_stop(void);
+
 db_error_t db_manager_init(const char* persistence_path);
 db_error_t db_manager_init_with_config(size_t max_databases, size_t max_collections, 
                                       const char* persistence_path);
