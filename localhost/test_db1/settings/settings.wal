@@ -1,0 +1,1 @@
+INSERT app_config {"dark_mode":true,"font_size":14,"language":"en","notifications":{"email":true,"sms":false}}

@@ -50,7 +50,6 @@ add role viewer "read"
 assign role admin1 admin
 revoke role admin1 admin
 remove role viewer
-compact test_db1
 help
 help insert
 create database

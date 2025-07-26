@@ -1,0 +1,5 @@
+INSERT order1 {"user":"user1","products":["prod1","prod6"],"total":1059.98,"date":"2023-05-15"}
+INSERT order2 {"user":"user2","products":["prod2","prod7"],"total":729.98,"date":"2023-05-16"}
+INSERT order3 {"user":"user3","products":["prod3","prod4","prod9"],"total":294.97,"date":"2023-05-17"}
+INSERT order4 {"user":"user1","products":["prod5","prod8","prod10"],"total":267.97,"date":"2023-05-18"}
+INSERT order5 {"user":"user2","products":["prod1","prod2","prod3"],"total":1899.97,"date":"2023-05-19"}

@@ -1,0 +1,5 @@
+INSERT tx1 {"from":"user1","to":"user2","amount":50.00,"currency":"USD","timestamp":"2023-05-15T10:00:00Z"}
+INSERT tx2 {"from":"user2","to":"user3","amount":25.00,"currency":"USD","timestamp":"2023-05-15T10:05:00Z"}
+INSERT tx3 {"from":"user3","to":"user1","amount":10.00,"currency":"USD","timestamp":"2023-05-15T10:10:00Z"}
+INSERT tx4 {"from":"user1","to":"user3","amount":15.00,"currency":"USD","timestamp":"2023-05-15T10:15:00Z"}
+INSERT tx5 {"from":"user2","to":"user1","amount":30.00,"currency":"USD","timestamp":"2023-05-15T10:20:00Z"}

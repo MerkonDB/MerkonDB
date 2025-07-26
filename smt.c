@@ -1,5 +1,6 @@
 // smt.c (optimized)
 #include "smt.h"
+#include "common.h"
 
 static void safe_hash(const void* data, size_t len, unsigned char* hash);
 static void element_cleanup(Element* element);
@@ -1004,6 +1005,105 @@ smt_error_t smt_get_root(SMT* smt, unsigned char* root) {
     if (err != SMT_SUCCESS) return err;
     
     memcpy(root, smt->top_level_root, HASH_SIZE);
+    return SMT_SUCCESS;
+}
+
+smt_error_t smt_serialize(const SMT* smt, FILE* fp) {
+    if (!smt || !fp) return SMT_ERROR_NULL_POINTER;
+    if (fwrite(&smt->layer_count, sizeof(int), 1, fp) != 1 ||
+        fwrite(&smt->total_elements, sizeof(size_t), 1, fp) != 1 ||
+        fwrite(smt->top_level_root, HASH_SIZE, 1, fp) != 1) {
+        return SMT_ERROR_IO_ERROR;
+    }
+    for (int i = 0; i < smt->layer_count; i++) {
+        Layer* layer = &smt->layers[i];
+        if (fwrite(&layer->element_count, sizeof(int), 1, fp) != 1 ||
+            fwrite(&layer->capacity, sizeof(int), 1, fp) != 1 ||
+            fwrite(layer->merkle_root, HASH_SIZE, 1, fp) != 1) {
+            return SMT_ERROR_IO_ERROR;
+        }
+        for (int j = 0; j < layer->element_count; j++) {
+            Element* elem = &layer->elements[j];
+            if (fwrite(&elem->key_len, sizeof(size_t), 1, fp) != 1 ||
+                fwrite(elem->key, elem->key_len, 1, fp) != 1 ||
+                fwrite(&elem->value_len, sizeof(size_t), 1, fp) != 1) {
+                return SMT_ERROR_IO_ERROR;
+            }
+            if (elem->value_len > 0 && fwrite(elem->value, elem->value_len, 1, fp) != 1) {
+                return SMT_ERROR_IO_ERROR;
+            }
+            if (fwrite(&elem->priority, sizeof(int), 1, fp) != 1) {
+                return SMT_ERROR_IO_ERROR;
+            }
+        }
+    }
+    return SMT_SUCCESS;
+}
+
+smt_error_t smt_deserialize(SMT* smt, FILE* fp) {
+    if (!smt || !fp) return SMT_ERROR_NULL_POINTER;
+    smt_cleanup(smt);
+    smt_init(smt);
+    if (fread(&smt->layer_count, sizeof(int), 1, fp) != 1 ||
+        fread(&smt->total_elements, sizeof(size_t), 1, fp) != 1 ||
+        fread(smt->top_level_root, HASH_SIZE, 1, fp) != 1) {
+        smt_cleanup(smt);
+        return SMT_ERROR_IO_ERROR;
+    }
+    for (int i = 0; i < smt->layer_count; i++) {
+        Layer* layer = &smt->layers[i];
+        if (fread(&layer->element_count, sizeof(int), 1, fp) != 1 ||
+            fread(&layer->capacity, sizeof(int), 1, fp) != 1 ||
+            fread(layer->merkle_root, HASH_SIZE, 1, fp) != 1) {
+            smt_cleanup(smt);
+            return SMT_ERROR_IO_ERROR;
+        }
+        layer->elements = malloc(layer->capacity * sizeof(Element));
+        if (!layer->elements) {
+            smt_cleanup(smt);
+            return SMT_ERROR_MEMORY_ALLOCATION;
+        }
+        for (int j = 0; j < layer->element_count; j++) {
+            Element* elem = &layer->elements[j];
+            if (fread(&elem->key_len, sizeof(size_t), 1, fp) != 1) {
+                smt_cleanup(smt);
+                return SMT_ERROR_IO_ERROR;
+            }
+            elem->key = malloc(elem->key_len + 1);
+            if (!elem->key) {
+                smt_cleanup(smt);
+                return SMT_ERROR_MEMORY_ALLOCATION;
+            }
+            if (fread(elem->key, elem->key_len, 1, fp) != 1) {
+                smt_cleanup(smt);
+                return SMT_ERROR_IO_ERROR;
+            }
+            elem->key[elem->key_len] = '\0';
+            if (fread(&elem->value_len, sizeof(size_t), 1, fp) != 1) {
+                smt_cleanup(smt);
+                return SMT_ERROR_IO_ERROR;
+            }
+            if (elem->value_len > 0) {
+                elem->value = malloc(elem->value_len + 1);
+                if (!elem->value) {
+                    smt_cleanup(smt);
+                    return SMT_ERROR_MEMORY_ALLOCATION;
+                }
+                if (fread(elem->value, elem->value_len, 1, fp) != 1) {
+                    smt_cleanup(smt);
+                    return SMT_ERROR_IO_ERROR;
+                }
+                elem->value[elem->value_len] = '\0';
+            } else {
+                elem->value = NULL;
+            }
+            if (fread(&elem->priority, sizeof(int), 1, fp) != 1) {
+                smt_cleanup(smt);
+                return SMT_ERROR_IO_ERROR;
+            }
+        }
+    }
+    smt->dirty = 0;
     return SMT_SUCCESS;
 }
 

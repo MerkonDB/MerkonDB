@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <jansson.h>
 #include <arpa/inet.h>
+#include "common.h"
 #include <signal.h>
 #include <errno.h>
 
@@ -884,7 +885,7 @@ else if (strcmp(operation, "db_drop_index") == 0) {
 
         if (strncmp(operation, "rbac_", 5) == 0 && strcmp(json_string_value(json_object_get(response, "status")), "success") == 0) {
             printf("[%s] [DEBUG] Saving RBAC state after %s\n", timestamp, operation);
-            char rbac_path[1024];
+            char rbac_path[2048];
             snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
             if (rbac_save(&g_rbac, rbac_path) != 0) {
                 printf("[%s] [WARNING] Failed to save RBAC state after %s\n", timestamp, operation);
