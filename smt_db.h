@@ -1,11 +1,15 @@
-
 #ifndef SMT_DB_H
 #define SMT_DB_H
 
 #include "smt.h"
+#include "common.h"
 #include <time.h>
 #include <pthread.h>
 #include <jansson.h>
+#include "persistence.h" 
+
+// Forward declaration to avoid circular dependency
+// typedef struct PersistenceManager PersistenceManager;
 
 #define MAX_DB_NAME_LEN 64
 #define MAX_COLLECTION_NAME_LEN 64
@@ -13,30 +17,6 @@
 #define DEFAULT_MAX_COLLECTIONS 64
 #define MAX_THREAD_WAIT_SEC 5
 #define MAX_INDEX_FIELDS 16
-
-typedef enum {
-    DB_SUCCESS = 0,
-    DB_ERROR_NULL_POINTER = -1,
-    DB_ERROR_MEMORY_ALLOCATION = -2,
-    DB_ERROR_INVALID_PARAMETER = -3,
-    DB_ERROR_KEY_NOT_FOUND = -4,
-    DB_ERROR_DATABASE_NOT_FOUND = -5,
-    DB_ERROR_COLLECTION_NOT_FOUND = -6,
-    DB_ERROR_DATABASE_EXISTS = -7,
-    DB_ERROR_COLLECTION_EXISTS = -8,
-    DB_ERROR_MAX_LIMIT_REACHED = -9,
-    DB_ERROR_INVALID_JSON = -10,
-    DB_ERROR_CONCURRENT_ACCESS = -11,
-    DB_ERROR_DATABASE_CLOSED = -12,
-    DB_ERROR_IO_ERROR = -13,
-    DB_ERROR_CORRUPTED_DATA = -14,
-    DB_ERROR_INVALID_STATE = -15,
-    DB_ERROR_SMT_FAILED = -16,
-    DB_ERROR_LOCK_TIMEOUT = -17,
-    DB_ERROR_LOCK_FAILED = -18,
-    DB_ERROR_INDEX_NOT_FOUND = -19
-
-} db_error_t;
 
 typedef struct {
     size_t total_records;
@@ -50,7 +30,8 @@ typedef struct {
 
 typedef struct {
     char name[MAX_COLLECTION_NAME_LEN];
-    SMT tree;
+    SMT tree;     
+    PersistenceManager pm;                     // Sparse Merkle Tree for storage
     size_t record_count;
     time_t created_at;
     time_t last_modified;
@@ -80,6 +61,13 @@ typedef struct {
 } DatabaseManager;
 
 extern DatabaseManager g_db_manager;
+
+// In smt_db.h
+Database* find_database(const char* db_name);
+Collection* find_collection(Database* db, const char* collection_name);
+
+db_error_t db_autosave_start(int interval_seconds);
+void db_autosave_stop(void);
 
 db_error_t db_manager_init(const char* persistence_path);
 db_error_t db_manager_init_with_config(size_t max_databases, size_t max_collections, 

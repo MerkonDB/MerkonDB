@@ -1,4 +1,5 @@
 #include "smt_db.h"
+#include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,13 +10,18 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <jansson.h>
+#include <openssl/evp.h>
 
 #define MAX_DATABASES 10
+#define TEMP_FILE_SUFFIX ".tmp"
+#define DB_FILE_EXTENSION ".smtdb"
 
 DatabaseManager g_db_manager = {0};
 
-static Database* find_database(const char* db_name) {
+// Helper functions
+Database* find_database(const char* db_name) {
     if (!db_name || !g_db_manager.is_initialized) return NULL;
+    
     pthread_mutex_lock(&g_db_manager.lock);
     for (size_t i = 0; i < g_db_manager.db_count; i++) {
         if (strcmp(g_db_manager.databases[i].name, db_name) == 0 && 
@@ -28,8 +34,9 @@ static Database* find_database(const char* db_name) {
     return NULL;
 }
 
-static Collection* find_collection(Database* db, const char* collection_name) {
+Collection* find_collection(Database* db, const char* collection_name) {
     if (!db || !collection_name) return NULL;
+    
     pthread_rwlock_rdlock(&db->lock);
     for (size_t i = 0; i < db->collection_count; i++) {
         if (strcmp(db->collections[i].name, collection_name) == 0 && 
@@ -44,9 +51,12 @@ static Collection* find_collection(Database* db, const char* collection_name) {
 
 static db_error_t ensure_persistence_dir() {
     if (g_db_manager.persistence_path[0] == '\0') return DB_SUCCESS;
+    
     struct stat st = {0};
     if (stat(g_db_manager.persistence_path, &st) == -1) {
-        if (mkdir(g_db_manager.persistence_path, 0700) == -1) return DB_ERROR_IO_ERROR;
+        if (mkdir(g_db_manager.persistence_path, 0700) == -1) {
+            return DB_ERROR_IO_ERROR;
+        }
     }
     return DB_SUCCESS;
 }
@@ -57,7 +67,6 @@ static db_error_t update_indexes_for_record(Collection* col, const char* key, co
         return DB_ERROR_NULL_POINTER;
     }
     
-    fprintf(stdout, "[DEBUG] update_indexes_for_record: Processing key '%s'\n", key);
     json_error_t error;
     json_t* root = json_loads(value, 0, &error);
     if (!root) {
@@ -68,13 +77,7 @@ static db_error_t update_indexes_for_record(Collection* col, const char* key, co
     db_error_t result = DB_SUCCESS;
     
     for (size_t i = 0; i < col->indexed_field_count; i++) {
-        if (!col->indexed_fields[i]) {
-            fprintf(stderr, "[ERROR] update_indexes_for_record: Null indexed field at index %zu\n", i);
-            result = DB_ERROR_INVALID_STATE;
-            continue;
-        }
         const char* field_name = col->indexed_fields[i];
-        fprintf(stdout, "[DEBUG] update_indexes_for_record: Indexing field '%s'\n", field_name);
         json_t* field_value = json_object_get(root, field_name);
         
         if (field_value && (json_is_string(field_value) || json_is_integer(field_value) || json_is_real(field_value))) {
@@ -94,30 +97,22 @@ static db_error_t update_indexes_for_record(Collection* col, const char* key, co
             if (val_str) {
                 char index_key[256];
                 snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
-                fprintf(stdout, "[DEBUG] update_indexes_for_record: Index key '%s'\n", index_key);
 
                 char* current_list_str = NULL;
                 smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
-                fprintf(stdout, "[DEBUG] update_indexes_for_record: smt_lookup result for '%s': %d\n", index_key, lookup_err);
                 
                 json_t* list = NULL;
                 if (lookup_err == SMT_SUCCESS && current_list_str) {
                     list = json_loads(current_list_str, 0, NULL);
-                    if (!list) {
-                        fprintf(stderr, "[ERROR] update_indexes_for_record: Failed to parse index list for '%s'\n", index_key);
-                        result = DB_ERROR_INVALID_JSON;
-                    }
                     free(current_list_str);
                 }
                 
                 if (!list) {
                     list = json_array();
                     if (!list) {
-                        fprintf(stderr, "[ERROR] update_indexes_for_record: Failed to create JSON array for '%s'\n", index_key);
                         result = DB_ERROR_MEMORY_ALLOCATION;
                         continue;
                     }
-                    fprintf(stdout, "[DEBUG] update_indexes_for_record: Created new JSON array for '%s'\n", index_key);
                 }
 
                 int found = 0;
@@ -133,26 +128,21 @@ static db_error_t update_indexes_for_record(Collection* col, const char* key, co
                 if (!found) {
                     json_t* new_item = json_string(key);
                     if (!new_item) {
-                        fprintf(stderr, "[ERROR] update_indexes_for_record: Failed to create JSON string for key '%s'\n", key);
                         result = DB_ERROR_MEMORY_ALLOCATION;
                         json_decref(list);
                         continue;
                     }
                     json_array_append_new(list, new_item);
-                    fprintf(stdout, "[DEBUG] update_indexes_for_record: Appended key '%s' to index list\n", key);
                 }
 
                 char* new_list_str = json_dumps(list, JSON_COMPACT);
                 if (new_list_str) {
-                    fprintf(stdout, "[DEBUG] update_indexes_for_record: Inserting index '%s' into SMT\n", index_key);
                     smt_error_t insert_err = smt_insert(&col->tree, index_key, new_list_str);
                     if (insert_err != SMT_SUCCESS) {
-                        fprintf(stderr, "[ERROR] update_indexes_for_record: smt_insert failed for '%s' with error %d\n", index_key, insert_err);
                         result = DB_ERROR_SMT_FAILED;
                     }
                     free(new_list_str);
                 } else {
-                    fprintf(stderr, "[ERROR] update_indexes_for_record: Failed to serialize index list for '%s'\n", index_key);
                     result = DB_ERROR_MEMORY_ALLOCATION;
                 }
                 
@@ -162,154 +152,77 @@ static db_error_t update_indexes_for_record(Collection* col, const char* key, co
     }
     
     json_decref(root);
-    fprintf(stdout, "[DEBUG] update_indexes_for_record: Completed for key '%s'\n", key);
     return result;
 }
+
 static db_error_t remove_from_indexes(Collection* col, const char* key, const char* value) {
-    json_t* root = json_loads(value, 0, NULL);
+    if (!col || !key || !value) return DB_ERROR_NULL_POINTER;
+    
+    json_error_t error;
+    json_t* root = json_loads(value, 0, &error);
     if (!root) return DB_ERROR_INVALID_JSON;
 
     for (size_t i = 0; i < col->indexed_field_count; i++) {
         const char* field_name = col->indexed_fields[i];
         json_t* field_value = json_object_get(root, field_name);
-        if (field_value && json_is_string(field_value)) {
-            const char* val_str = json_string_value(field_value);
-            char index_key[256];
-            snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
+        
+        if (field_value && (json_is_string(field_value) || json_is_integer(field_value) || json_is_real(field_value))) {
+            const char* val_str = NULL;
+            char val_buffer[64] = {0};
+            
+            if (json_is_string(field_value)) {
+                val_str = json_string_value(field_value);
+            } else if (json_is_integer(field_value)) {
+                snprintf(val_buffer, sizeof(val_buffer), "%lld", (long long)json_integer_value(field_value));
+                val_str = val_buffer;
+            } else if (json_is_real(field_value)) {
+                snprintf(val_buffer, sizeof(val_buffer), "%f", json_real_value(field_value));
+                val_str = val_buffer;
+            }
+            
+            if (val_str) {
+                char index_key[256];
+                snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
 
-            char* current_list_str;
-            smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
-            if (lookup_err == SMT_SUCCESS) {
-                json_t* list = json_loads(current_list_str, 0, NULL);
-                free(current_list_str);
-                if (list) {
-                    size_t idx;
-                    json_t* item;
-                    json_array_foreach(list, idx, item) {
-                        if (strcmp(json_string_value(item), key) == 0) {
-                            json_array_remove(list, idx);
-                            break;
+                char* current_list_str = NULL;
+                smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
+                if (lookup_err == SMT_SUCCESS && current_list_str) {
+                    json_t* list = json_loads(current_list_str, 0, NULL);
+                    free(current_list_str);
+                    
+                    if (list) {
+                        size_t idx;
+                        json_t* item;
+                        json_array_foreach(list, idx, item) {
+                            if (json_is_string(item) && strcmp(json_string_value(item), key) == 0) {
+                                json_array_remove(list, idx);
+                                break;
+                            }
                         }
-                    }
-                    if (json_array_size(list) == 0) {
-                        smt_delete(&col->tree, index_key);
-                    } else {
-                        char* new_list_str = json_dumps(list, JSON_COMPACT);
-                        if (new_list_str) {
-                            smt_insert(&col->tree, index_key, new_list_str);
-                            free(new_list_str);
+                        
+                        if (json_array_size(list) == 0) {
+                            smt_delete(&col->tree, index_key);
+                        } else {
+                            char* new_list_str = json_dumps(list, JSON_COMPACT);
+                            if (new_list_str) {
+                                smt_insert(&col->tree, index_key, new_list_str);
+                                free(new_list_str);
+                            }
                         }
+                        json_decref(list);
                     }
-                    json_decref(list);
                 }
             }
         }
     }
+    
     json_decref(root);
     return DB_SUCCESS;
 }
 
-static db_error_t build_index_for_field(Database* db, Collection* col, const char* field_name) {
-    char** keys = NULL;
-    char** values = NULL;
-    size_t count = 0;
-    db_error_t err = db_find_all(db->name, col->name, &keys, &values, &count);
-    if (err != DB_SUCCESS) {
-        return err;
-    }
-
-    db_error_t final_err = DB_SUCCESS;
-    
-    for (size_t i = 0; i < count; i++) {
-        if (!strstr(keys[i], "__index__:")) {  // Skip index entries
-            json_error_t json_error;
-            json_t* root = json_loads(values[i], 0, &json_error);
-            if (!root) {
-                fprintf(stderr, "[ERROR] build_index_for_field: Failed to parse JSON for key %s: %s\n", 
-                        keys[i], json_error.text);
-                continue;  // Skip invalid JSON but continue processing other records
-            }
-
-            json_t* field_value = json_object_get(root, field_name);
-            if (field_value && (json_is_string(field_value) || json_is_integer(field_value) || json_is_real(field_value))) {
-                const char* val_str = NULL;
-                char val_buffer[64];
-                
-                if (json_is_string(field_value)) {
-                    val_str = json_string_value(field_value);
-                } else if (json_is_integer(field_value)) {
-                    snprintf(val_buffer, sizeof(val_buffer), "%lld", (long long)json_integer_value(field_value));
-                    val_str = val_buffer;
-                } else if (json_is_real(field_value)) {
-                    snprintf(val_buffer, sizeof(val_buffer), "%f", json_real_value(field_value));
-                    val_str = val_buffer;
-                }
-                
-                if (val_str) {
-                    char index_key[256];
-                    snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
-
-                    char* current_list_str = NULL;
-                    smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
-                    
-                    json_t* list = NULL;
-                    if (lookup_err == SMT_SUCCESS && current_list_str) {
-                        list = json_loads(current_list_str, 0, NULL);
-                        free(current_list_str);
-                    }
-                    
-                    if (!list) {
-                        list = json_array();
-                        if (!list) {
-                            json_decref(root);
-                            final_err = DB_ERROR_MEMORY_ALLOCATION;
-                            break;
-                        }
-                    }
-
-                    // Check if key already exists in the list
-                    int found = 0;
-                    size_t idx;
-                    json_t* item;
-                    json_array_foreach(list, idx, item) {
-                        if (json_is_string(item) && strcmp(json_string_value(item), keys[i]) == 0) {
-                            found = 1;
-                            break;
-                        }
-                    }
-                    
-                    if (!found) {
-                        json_t* new_item = json_string(keys[i]);
-                        if (!new_item) {
-                            json_decref(list);
-                            json_decref(root);
-                            final_err = DB_ERROR_MEMORY_ALLOCATION;
-                            break;
-                        }
-                        json_array_append_new(list, new_item);
-                    }
-
-                    char* new_list_str = json_dumps(list, JSON_COMPACT);
-                    if (new_list_str) {
-                        smt_insert(&col->tree, index_key, new_list_str);
-                        free(new_list_str);
-                    } else {
-                        final_err = DB_ERROR_MEMORY_ALLOCATION;
-                    }
-                    
-                    json_decref(list);
-                }
-            }
-            json_decref(root);
-        }
-    }
-
-    db_free_list(keys, count);
-    db_free_list(values, count);
-    return final_err;
-}
-
 static db_error_t serialize_database(Database* db, int fd) {
+    if (!db || fd < 0) return DB_ERROR_NULL_POINTER;
+    
     json_t* root = json_object();
     if (!root) return DB_ERROR_MEMORY_ALLOCATION;
 
@@ -367,105 +280,9 @@ static db_error_t serialize_database(Database* db, int fd) {
     return DB_SUCCESS;
 }
 
-db_error_t db_list_indexes(const char* db_name, const char* collection_name, char*** indexed_fields, size_t* count) {
-    Database* db = find_database(db_name);
-    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
-    
-    Collection* col = find_collection(db, collection_name);
-    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
-    
-    pthread_rwlock_rdlock(&col->lock);
-    
-    *indexed_fields = malloc(col->indexed_field_count * sizeof(char*));
-    if (!*indexed_fields) {
-        pthread_rwlock_unlock(&col->lock);
-        return DB_ERROR_MEMORY_ALLOCATION;
-    }
-    
-    for (size_t i = 0; i < col->indexed_field_count; i++) {
-        (*indexed_fields)[i] = strdup(col->indexed_fields[i]);
-        if (!(*indexed_fields)[i]) {
-            for (size_t j = 0; j < i; j++) {
-                free((*indexed_fields)[j]);
-            }
-            free(*indexed_fields);
-            pthread_rwlock_unlock(&col->lock);
-            return DB_ERROR_MEMORY_ALLOCATION;
-        }
-    }
-    
-    *count = col->indexed_field_count;
-    pthread_rwlock_unlock(&col->lock);
-    return DB_SUCCESS;
-}
-
-db_error_t db_drop_index(const char* db_name, const char* collection_name, const char* field_name) {
-    Database* db = find_database(db_name);
-    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
-    
-    Collection* col = find_collection(db, collection_name);
-    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
-    
-    pthread_rwlock_wrlock(&col->lock);
-    
-    int found = 0;
-    for (size_t i = 0; i < col->indexed_field_count; i++) {
-        if (strcmp(col->indexed_fields[i], field_name) == 0) {
-            found = 1;
-            free(col->indexed_fields[i]);
-            for (size_t j = i; j < col->indexed_field_count - 1; j++) {
-                col->indexed_fields[j] = col->indexed_fields[j+1];
-            }
-            col->indexed_field_count--;
-            break;
-        }
-    }
-    
-    if (!found) {
-        pthread_rwlock_unlock(&col->lock);
-        return DB_ERROR_INDEX_NOT_FOUND;
-    }
-    
-    char** keys_to_delete = NULL;
-    size_t key_count = 0;
-    char prefix[256];
-    snprintf(prefix, sizeof(prefix), "__index__:%s:", field_name);
-    
-    for (int layer_idx = 0; layer_idx < col->tree.layer_count; layer_idx++) {
-        Layer* layer = &col->tree.layers[layer_idx];
-        for (int elem_idx = 0; elem_idx < layer->element_count; elem_idx++) {
-            Element* elem = &layer->elements[elem_idx];
-            if (strncmp(elem->key, prefix, strlen(prefix)) == 0) {
-                keys_to_delete = realloc(keys_to_delete, (key_count + 1) * sizeof(char*));
-                if (!keys_to_delete) {
-                    pthread_rwlock_unlock(&col->lock);
-                    return DB_ERROR_MEMORY_ALLOCATION;
-                }
-                keys_to_delete[key_count] = strdup(elem->key);
-                if (!keys_to_delete[key_count]) {
-                    for (size_t k = 0; k < key_count; k++) {
-                        free(keys_to_delete[k]);
-                    }
-                    free(keys_to_delete);
-                    pthread_rwlock_unlock(&col->lock);
-                    return DB_ERROR_MEMORY_ALLOCATION;
-                }
-                key_count++;
-            }
-        }
-    }
-    
-    for (size_t i = 0; i < key_count; i++) {
-        smt_delete(&col->tree, keys_to_delete[i]);
-        free(keys_to_delete[i]);
-    }
-    free(keys_to_delete);
-    
-    pthread_rwlock_unlock(&col->lock);
-    return DB_SUCCESS;
-}
-
 static db_error_t deserialize_database(Database* db, int fd) {
+    if (!db || fd < 0) return DB_ERROR_NULL_POINTER;
+    
     struct stat st;
     if (fstat(fd, &st) == -1) return DB_ERROR_IO_ERROR;
 
@@ -557,6 +374,7 @@ static db_error_t deserialize_database(Database* db, int fd) {
     return DB_SUCCESS;
 }
 
+// Database management functions
 db_error_t db_manager_init(const char* persistence_path) {
     return db_manager_init_with_config(DEFAULT_MAX_DATABASES, DEFAULT_MAX_COLLECTIONS, persistence_path);
 }
@@ -624,6 +442,7 @@ void db_manager_cleanup() {
     memset(&g_db_manager, 0, sizeof(DatabaseManager));
 }
 
+// Database operations
 db_error_t db_create(const char* db_name) {
     if (!db_name) return DB_ERROR_NULL_POINTER;
     if (strlen(db_name) >= MAX_DB_NAME_LEN) return DB_ERROR_INVALID_PARAMETER;
@@ -835,15 +654,24 @@ db_error_t db_get_stats(const char* db_name, DatabaseStats* stats) {
     return DB_SUCCESS;
 }
 
+// Collection operations
 db_error_t db_create_collection(const char* db_name, const char* collection_name) {
-    if (!db_name || !collection_name) return DB_ERROR_NULL_POINTER;
-    if (strlen(collection_name) >= MAX_COLLECTION_NAME_LEN) return DB_ERROR_INVALID_PARAMETER;
+    if (!db_name || !collection_name) {
+        return DB_ERROR_NULL_POINTER;
+    }
+
+    if (strlen(collection_name) >= MAX_COLLECTION_NAME_LEN) {
+        return DB_ERROR_INVALID_PARAMETER;
+    }
 
     Database* db = find_database(db_name);
-    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
+    if (!db) {
+        return DB_ERROR_DATABASE_NOT_FOUND;
+    }
 
     pthread_rwlock_wrlock(&db->lock);
 
+    // Check if collection already exists
     for (size_t i = 0; i < db->collection_count; i++) {
         if (strcmp(db->collections[i].name, collection_name) == 0) {
             pthread_rwlock_unlock(&db->lock);
@@ -851,6 +679,7 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
         }
     }
 
+    // Resize collections array if needed
     if (db->collection_count >= db->collection_capacity) {
         size_t new_capacity = db->collection_capacity * 2;
         Collection* new_collections = realloc(db->collections, new_capacity * sizeof(Collection));
@@ -862,6 +691,7 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
         db->collection_capacity = new_capacity;
     }
 
+    // Initialize new collection
     Collection* col = &db->collections[db->collection_count++];
     memset(col, 0, sizeof(Collection));
 
@@ -870,20 +700,69 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
     col->last_modified = col->created_at;
     col->is_open = 1;
 
+    // Initialize SMT
+    smt_error_t smt_err = smt_init(&col->tree);
+    if (smt_err != SMT_SUCCESS) {
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return (db_error_t)smt_err;
+    }
+
+    // Initialize RWLock
     if (pthread_rwlock_init(&col->lock, NULL) != 0) {
+        smt_cleanup(&col->tree);
         db->collection_count--;
         pthread_rwlock_unlock(&db->lock);
         return DB_ERROR_MEMORY_ALLOCATION;
     }
 
-    smt_error_t err = smt_init(&col->tree);
-    if (err != SMT_SUCCESS) {
+    // Create collection directory structure
+    char db_dir[2048];
+    snprintf(db_dir, sizeof(db_dir), "%s/%s", g_db_manager.persistence_path, db_name);
+    
+    // Create database directory if it doesn't exist
+    if (mkdir(db_dir, 0755) == -1 && errno != EEXIST) {
         pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
         db->collection_count--;
         pthread_rwlock_unlock(&db->lock);
-        return (db_error_t)err;
+        return DB_ERROR_IO_ERROR;
     }
 
+    char col_dir[2048];
+    snprintf(col_dir, sizeof(col_dir), "%s/%s/%s",
+             g_db_manager.persistence_path, db_name, collection_name);
+
+    // Create collection directory
+    if (mkdir(col_dir, 0755) == -1 && errno != EEXIST) {
+        pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return DB_ERROR_IO_ERROR;
+    }
+
+    // Verify directory was created and is accessible
+    struct stat st;
+    if (stat(col_dir, &st) == -1 || !S_ISDIR(st.st_mode)) {
+        pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return DB_ERROR_IO_ERROR;
+    }
+
+    // Initialize persistence manager
+    db_error_t perr = persistence_init(&col->pm, col_dir, collection_name);
+    if (perr != DB_SUCCESS) {
+        pthread_rwlock_destroy(&col->lock);
+        smt_cleanup(&col->tree);
+        db->collection_count--;
+        pthread_rwlock_unlock(&db->lock);
+        return perr;
+    }
+
+    // Update database stats
     db->stats.total_collections++;
     db->stats.last_modified = time(NULL);
 
@@ -892,24 +771,18 @@ db_error_t db_create_collection(const char* db_name, const char* collection_name
 }
 
 db_error_t db_drop_collection(const char* db_name, const char* collection_name) {
-    if (!db_name || !collection_name) {
-        fprintf(stderr, "[ERROR] db_drop_collection: Null pointer detected\n");
-        return DB_ERROR_NULL_POINTER;
-    }
+    if (!db_name || !collection_name) return DB_ERROR_NULL_POINTER;
 
     Database* db = find_database(db_name);
-    if (!db) {
-        fprintf(stderr, "[ERROR] db_drop_collection: Database '%s' not found\n", db_name);
-        return DB_ERROR_DATABASE_NOT_FOUND;
-    }
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
 
     pthread_rwlock_wrlock(&db->lock);
+
     for (size_t i = 0; i < db->collection_count; i++) {
         Collection* col = &db->collections[i];
         if (strcmp(col->name, collection_name) == 0) {
             if (!col->is_open) {
                 pthread_rwlock_unlock(&db->lock);
-                fprintf(stderr, "[ERROR] db_drop_collection: Collection '%s' is not open\n", collection_name);
                 return DB_ERROR_COLLECTION_NOT_FOUND;
             }
 
@@ -917,14 +790,10 @@ db_error_t db_drop_collection(const char* db_name, const char* collection_name) 
             smt_cleanup(&col->tree);
             pthread_rwlock_destroy(&col->lock);
 
-            // Clear indexed_fields
             for (size_t j = 0; j < col->indexed_field_count; j++) {
                 free(col->indexed_fields[j]);
-                col->indexed_fields[j] = NULL;
             }
-            col->indexed_field_count = 0;
 
-            // Shift remaining collections
             for (size_t j = i; j < db->collection_count - 1; j++) {
                 db->collections[j] = db->collections[j + 1];
             }
@@ -932,13 +801,11 @@ db_error_t db_drop_collection(const char* db_name, const char* collection_name) 
             db->stats.total_collections--;
             db->stats.last_modified = time(NULL);
             pthread_rwlock_unlock(&db->lock);
-            fprintf(stdout, "[DEBUG] db_drop_collection: Dropped collection '%s'\n", collection_name);
             return DB_SUCCESS;
         }
     }
 
     pthread_rwlock_unlock(&db->lock);
-    fprintf(stderr, "[ERROR] db_drop_collection: Collection '%s' not found\n", collection_name);
     return DB_ERROR_COLLECTION_NOT_FOUND;
 }
 
@@ -949,47 +816,52 @@ static db_error_t db_find_all_internal(Collection* col, char*** keys, char*** va
     *values = NULL;
     *count = 0;
 
-    size_t total_elements = col->record_count;
+    pthread_rwlock_rdlock(&col->lock);
+    
+    // First try to get from persistence
+    db_error_t err = persistence_find_all(&col->pm, keys, values, count);
+    if (err != DB_SUCCESS || *count == 0) {
+        // Fall back to in-memory tree if persistence has nothing
+        db_free_list(*keys, *count);
+        db_free_list(*values, *count);
+        
+        size_t total_elements = 0;
+        for (int i = 0; i < col->tree.layer_count; i++) {
+            total_elements += col->tree.layers[i].element_count;
+        }
 
-    if (total_elements == 0) {
-        return DB_SUCCESS;
-    }
+        if (total_elements == 0) {
+            pthread_rwlock_unlock(&col->lock);
+            return DB_SUCCESS;
+        }
 
-    *keys = malloc(total_elements * sizeof(char*));
-    *values = malloc(total_elements * sizeof(char*));
-    if (!*keys || !*values) {
-        free(*keys);
-        free(*values);
-        return DB_ERROR_MEMORY_ALLOCATION;
-    }
+        *keys = malloc(total_elements * sizeof(char*));
+        *values = malloc(total_elements * sizeof(char*));
+        if (!*keys || !*values) {
+            free(*keys);
+            free(*values);
+            pthread_rwlock_unlock(&col->lock);
+            return DB_ERROR_MEMORY_ALLOCATION;
+        }
 
-    size_t idx = 0;
-    for (int i = 0; i < col->tree.layer_count && idx < total_elements; i++) {
-        Layer* layer = &col->tree.layers[i];
-        for (int j = 0; j < layer->element_count && idx < total_elements; j++) {
-            Element* elem = &layer->elements[j];
-            if (!strstr(elem->key, "__index__:")) {  // Exclude index keys
-                (*keys)[idx] = strdup(elem->key);
-                (*values)[idx] = elem->value ? strdup(elem->value) : NULL;
-
-                if (!(*keys)[idx] || (elem->value && !(*values)[idx])) {
-                    for (size_t k = 0; k < idx; k++) {
-                        free((*keys)[k]);
-                        free((*values)[k]);
-                    }
-                    free(*keys);
-                    free(*values);
-                    return DB_ERROR_MEMORY_ALLOCATION;
+        size_t idx = 0;
+        for (int i = 0; i < col->tree.layer_count && idx < total_elements; i++) {
+            Layer* layer = &col->tree.layers[i];
+            for (int j = 0; j < layer->element_count && idx < total_elements; j++) {
+                Element* elem = &layer->elements[j];
+                if (!strstr(elem->key, "__index__:")) {
+                    (*keys)[idx] = strdup(elem->key);
+                    (*values)[idx] = elem->value ? strdup(elem->value) : NULL;
+                    idx++;
                 }
-                idx++;
             }
         }
+        *count = idx;
     }
-
-    *count = idx;
+    
+    pthread_rwlock_unlock(&col->lock);
     return DB_SUCCESS;
 }
-
 
 db_error_t db_list_collections(const char* db_name, char*** collection_names, size_t* count) {
     if (!db_name || !collection_names || !count) return DB_ERROR_NULL_POINTER;
@@ -1051,68 +923,47 @@ db_error_t db_collection_exists(const char* db_name, const char* collection_name
     return DB_SUCCESS;
 }
 
+// Data operations
 db_error_t db_insert(const char* db_name, const char* collection_name, const char* key, const char* value) {
-    fprintf(stdout, "[DEBUG] db_insert: Starting for key '%s' in database '%s', collection '%s'\n", key, db_name, collection_name);
-    if (!db_name || !collection_name || !key || !value) {
-        fprintf(stderr, "[ERROR] db_insert: Null pointer input\n");
-        return DB_ERROR_NULL_POINTER;
-    }
+    if (!db_name || !collection_name || !key || !value) return DB_ERROR_NULL_POINTER;
 
     Database* db = find_database(db_name);
-    if (!db) {
-        fprintf(stderr, "[ERROR] db_insert: Database '%s' not found\n", db_name);
-        return DB_ERROR_DATABASE_NOT_FOUND;
-    }
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
 
     Collection* col = find_collection(db, collection_name);
-    if (!col) {
-        fprintf(stderr, "[ERROR] db_insert: Collection '%s' not found in database '%s'\n", collection_name, db_name);
-        return DB_ERROR_COLLECTION_NOT_FOUND;
-    }
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
 
-    fprintf(stdout, "[DEBUG] db_insert: Acquiring write lock for collection '%s'\n", collection_name);
     pthread_rwlock_wrlock(&col->lock);
 
     char* existing_value = NULL;
-    fprintf(stdout, "[DEBUG] db_insert: Performing smt_lookup for key '%s'\n", key);
-    smt_error_t lookup_result = smt_lookup(&col->tree, key, &existing_value);
+    smt_lookup(&col->tree, key, &existing_value);
 
-    fprintf(stdout, "[DEBUG] db_insert: Performing smt_insert for key '%s' with value '%s'\n", key, value);
-    smt_error_t err = smt_insert(&col->tree, key, value);
-    if (err != SMT_SUCCESS) {
-        fprintf(stderr, "[ERROR] db_insert: smt_insert failed for key '%s' with error %d\n", key, err);
+    db_error_t err = persistence_insert(&col->pm, key, value);
+    if (err != DB_SUCCESS) {
         if (existing_value) free(existing_value);
         pthread_rwlock_unlock(&col->lock);
-        return (db_error_t)err;
+        return err;
     }
 
-    fprintf(stdout, "[DEBUG] db_insert: smt_insert succeeded for key '%s'\n", key);
+    // Update in-memory tree for fast reads
+    smt_insert(&col->tree, key, value);
+
     if (value && col->indexed_field_count > 0) {
-        fprintf(stdout, "[DEBUG] db_insert: Updating indexes for key '%s'\n", key);
-        db_error_t index_result = update_indexes_for_record(col, key, value);
-        if (index_result != DB_SUCCESS) {
-            fprintf(stderr, "[ERROR] db_insert: Index update failed for key '%s' with error %d\n", key, index_result);
-        }
+        update_indexes_for_record(col, key, value);
     }
 
-    if (lookup_result == SMT_ERROR_KEY_NOT_FOUND) {
+    if (!existing_value) {
         col->record_count++;
         db->stats.total_records++;
-        fprintf(stdout, "[DEBUG] db_insert: Incremented record count for new key '%s'\n", key);
     } else if (value && existing_value && strcmp(value, existing_value) != 0) {
         db->stats.total_updates++;
-        fprintf(stdout, "[DEBUG] db_insert: Incremented update count for key '%s'\n", key);
     }
 
     col->last_modified = time(NULL);
     db->stats.last_modified = col->last_modified;
-    fprintf(stdout, "[DEBUG] db_insert: Updated last_modified for collection '%s'\n", collection_name);
 
     if (existing_value) free(existing_value);
     pthread_rwlock_unlock(&col->lock);
-    fprintf(stdout, "[DEBUG] db_insert: Released write lock for collection '%s'\n", collection_name);
-
-    fprintf(stdout, "[DEBUG] db_insert: Completed successfully for key '%s'\n", key);
     return DB_SUCCESS;
 }
 
@@ -1127,9 +978,15 @@ db_error_t db_find(const char* db_name, const char* collection_name, const char*
     if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
 
     pthread_rwlock_rdlock(&col->lock);
+    
+    // First check in-memory tree
     smt_error_t err = smt_lookup(&col->tree, key, value);
+    if (err == SMT_ERROR_KEY_NOT_FOUND) {
+        // Fall back to persistence if not in memory
+        err = (smt_error_t)persistence_find(&col->pm, key, value);
+    }
+    
     pthread_rwlock_unlock(&col->lock);
-
     return (db_error_t)err;
 }
 
@@ -1145,21 +1002,24 @@ db_error_t db_update(const char* db_name, const char* collection_name, const cha
     pthread_rwlock_wrlock(&col->lock);
 
     char* old_value = NULL;
-    smt_error_t lookup_err = smt_lookup(&col->tree, key, &old_value);
+    smt_lookup(&col->tree, key, &old_value);
 
-    smt_error_t err = smt_insert(&col->tree, key, value);
-    if (err != SMT_SUCCESS) {
+    db_error_t err = persistence_insert(&col->pm, key, value);
+    if (err != DB_SUCCESS) {
         if (old_value) free(old_value);
         pthread_rwlock_unlock(&col->lock);
-        return (db_error_t)err;
+        return err;
     }
+
+    // Update in-memory tree
+    smt_insert(&col->tree, key, value);
 
     if (col->indexed_field_count > 0) {
         if (old_value) remove_from_indexes(col, key, old_value);
         if (value) update_indexes_for_record(col, key, value);
     }
 
-    if (lookup_err == SMT_ERROR_KEY_NOT_FOUND) {
+    if (!old_value) {
         col->record_count++;
         db->stats.total_records++;
     } else if (value && old_value && strcmp(value, old_value) != 0) {
@@ -1171,7 +1031,6 @@ db_error_t db_update(const char* db_name, const char* collection_name, const cha
 
     if (old_value) free(old_value);
     pthread_rwlock_unlock(&col->lock);
-
     return DB_SUCCESS;
 }
 
@@ -1187,27 +1046,31 @@ db_error_t db_delete(const char* db_name, const char* collection_name, const cha
     pthread_rwlock_wrlock(&col->lock);
 
     char* old_value = NULL;
-    smt_error_t lookup_err = smt_lookup(&col->tree, key, &old_value);
+    smt_lookup(&col->tree, key, &old_value);
 
-    smt_error_t err = smt_delete(&col->tree, key);
-    if (err != SMT_SUCCESS) {
+    db_error_t err = persistence_delete(&col->pm, key);
+    if (err != DB_SUCCESS) {
         if (old_value) free(old_value);
         pthread_rwlock_unlock(&col->lock);
-        return (db_error_t)err;
+        return err;
     }
 
-    if (lookup_err == SMT_SUCCESS && col->indexed_field_count > 0 && old_value) {
+    // Update in-memory tree
+    smt_delete(&col->tree, key);
+
+    if (old_value && col->indexed_field_count > 0) {
         remove_from_indexes(col, key, old_value);
     }
 
-    col->record_count--;
-    db->stats.total_records--;
+    if (old_value) {
+        col->record_count--;
+        db->stats.total_records--;
+    }
     col->last_modified = time(NULL);
     db->stats.last_modified = col->last_modified;
 
     if (old_value) free(old_value);
     pthread_rwlock_unlock(&col->lock);
-
     return DB_SUCCESS;
 }
 
@@ -1278,49 +1141,26 @@ db_error_t db_find_all(const char* db_name, const char* collection_name, char***
     return err;
 }
 
+// Index operations
 db_error_t db_create_index(const char* db_name, const char* collection_name, const char* field_name) {
-    fprintf(stdout, "[DEBUG] db_create_index: Starting for db='%s', collection='%s', field='%s'\n", db_name, collection_name, field_name);
-    if (!db_name || !collection_name || !field_name) {
-        fprintf(stderr, "[ERROR] db_create_index: Null pointer detected\n");
-        return DB_ERROR_NULL_POINTER;
-    }
+    if (!db_name || !collection_name || !field_name) return DB_ERROR_NULL_POINTER;
 
     Database* db = find_database(db_name);
-    if (!db) {
-        fprintf(stderr, "[ERROR] db_create_index: Database '%s' not found\n", db_name);
-        return DB_ERROR_DATABASE_NOT_FOUND;
-    }
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
 
     Collection* col = find_collection(db, collection_name);
-    if (!col) {
-        fprintf(stderr, "[ERROR] db_create_index: Collection '%s' not found\n", collection_name);
-        return DB_ERROR_COLLECTION_NOT_FOUND;
-    }
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
 
-    fprintf(stdout, "[DEBUG] db_create_index: Acquiring write lock for collection '%s'\n", collection_name);
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5; // 5-second timeout
-    int lock_err = pthread_rwlock_timedwrlock(&col->lock, &timeout);
-    if (lock_err == ETIMEDOUT) {
-        fprintf(stderr, "[ERROR] db_create_index: Lock acquisition timed out\n");
-        return DB_ERROR_LOCK_TIMEOUT;
-    } else if (lock_err != 0) {
-        fprintf(stderr, "[ERROR] db_create_index: Lock error %d\n", lock_err);
-        return DB_ERROR_LOCK_FAILED;
-    }
-    fprintf(stdout, "[DEBUG] db_create_index: Write lock acquired\n");
+    pthread_rwlock_wrlock(&col->lock);
 
     for (size_t i = 0; i < col->indexed_field_count; i++) {
         if (strcmp(col->indexed_fields[i], field_name) == 0) {
-            fprintf(stdout, "[DEBUG] db_create_index: Field '%s' already indexed\n", field_name);
             pthread_rwlock_unlock(&col->lock);
             return DB_SUCCESS;
         }
     }
 
     if (col->indexed_field_count >= MAX_INDEX_FIELDS) {
-        fprintf(stderr, "[ERROR] db_create_index: Max index fields reached\n");
         pthread_rwlock_unlock(&col->lock);
         return DB_ERROR_MAX_LIMIT_REACHED;
     }
@@ -1328,23 +1168,15 @@ db_error_t db_create_index(const char* db_name, const char* collection_name, con
     char** keys = NULL;
     char** values = NULL;
     size_t count = 0;
-    fprintf(stdout, "[DEBUG] db_create_index: Calling db_find_all_internal\n");
     db_error_t err = db_find_all_internal(col, &keys, &values, &count);
     if (err != DB_SUCCESS) {
-        fprintf(stderr, "[ERROR] db_create_index: Failed to retrieve records, error=%d\n", err);
         pthread_rwlock_unlock(&col->lock);
         return err;
     }
-    fprintf(stdout, "[DEBUG] db_create_index: Retrieved %zu records\n", count);
 
     for (size_t i = 0; i < count; i++) {
-        fprintf(stdout, "[DEBUG] db_create_index: Processing record %zu: key=%s\n", i, keys[i]);
         json_t* root = json_loads(values[i], 0, NULL);
-        if (!root) {
-            fprintf(stderr, "[ERROR] db_create_index: Failed to parse JSON for key %s\n", keys[i]);
-            continue; // Skip invalid JSON, continue with next record
-        }
-        fprintf(stdout, "[DEBUG] db_create_index: Parsed JSON for key %s\n", keys[i]);
+        if (!root) continue;
 
         json_t* field_value = json_object_get(root, field_name);
         if (field_value && (json_is_string(field_value) || json_is_integer(field_value) || json_is_real(field_value))) {
@@ -1363,79 +1195,153 @@ db_error_t db_create_index(const char* db_name, const char* collection_name, con
             
             if (val_str) {
                 char index_key[256];
-                if (strlen(field_name) + strlen(val_str) + 10 >= sizeof(index_key)) {
-                    fprintf(stderr, "[ERROR] db_create_index: Index key too long for %s:%s\n", field_name, val_str);
-                    json_decref(root);
-                    continue;
-                }
                 snprintf(index_key, sizeof(index_key), "__index__:%s:%s", field_name, val_str);
-                fprintf(stdout, "[DEBUG] db_create_index: Generated index key: %s\n", index_key);
 
                 char* current_list_str = NULL;
-                fprintf(stdout, "[DEBUG] db_create_index: Calling smt_lookup for %s\n", index_key);
                 smt_error_t lookup_err = smt_lookup(&col->tree, index_key, &current_list_str);
-                fprintf(stdout, "[DEBUG] db_create_index: smt_lookup returned %d\n", lookup_err);
-
+                
                 json_t* list = NULL;
                 if (lookup_err == SMT_SUCCESS && current_list_str) {
                     list = json_loads(current_list_str, 0, NULL);
                     free(current_list_str);
-                    if (!list) {
-                        fprintf(stderr, "[ERROR] db_create_index: Failed to parse current list for %s\n", index_key);
-                        json_decref(root);
-                        continue;
-                    }
                 }
+                
                 if (!list) {
                     list = json_array();
                 }
+
                 json_array_append_new(list, json_string(keys[i]));
                 char* new_list_str = json_dumps(list, JSON_COMPACT);
                 if (new_list_str) {
-                    fprintf(stdout, "[DEBUG] db_create_index: Calling smt_insert for %s\n", index_key);
-                    smt_error_t insert_err = smt_insert(&col->tree, index_key, new_list_str);
-                    if (insert_err != SMT_SUCCESS) {
-                        fprintf(stderr, "[ERROR] db_create_index: smt_insert failed for %s, error=%d\n", index_key, insert_err);
-                        free(new_list_str);
-                        json_decref(list);
-                        json_decref(root);
-                        continue;
-                    }
+                    smt_insert(&col->tree, index_key, new_list_str);
                     free(new_list_str);
-                } else {
-                    fprintf(stderr, "[ERROR] db_create_index: Failed to serialize list for %s\n", index_key);
                 }
                 json_decref(list);
             }
-        } else {
-            fprintf(stdout, "[DEBUG] db_create_index: Field %s not found or not indexable in key %s\n", field_name, keys[i]);
         }
         json_decref(root);
     }
 
     col->indexed_fields[col->indexed_field_count] = strdup(field_name);
     if (!col->indexed_fields[col->indexed_field_count]) {
-        fprintf(stderr, "[ERROR] db_create_index: Memory allocation failed for indexed field\n");
         db_free_list(keys, count);
         db_free_list(values, count);
         pthread_rwlock_unlock(&col->lock);
         return DB_ERROR_MEMORY_ALLOCATION;
     }
     col->indexed_field_count++;
-    fprintf(stdout, "[DEBUG] db_create_index: Added field '%s' to indexed_fields, count=%zu\n", field_name, col->indexed_field_count);
 
     db_free_list(keys, count);
     db_free_list(values, count);
-
-    fprintf(stdout, "[DEBUG] db_create_index: Releasing write lock\n");
     pthread_rwlock_unlock(&col->lock);
-    fprintf(stdout, "[DEBUG] db_create_index: Successfully created index on '%s'\n", field_name);
+    return DB_SUCCESS;
+}
+
+db_error_t db_list_indexes(const char* db_name, const char* collection_name, char*** indexed_fields, size_t* count) {
+    if (!db_name || !collection_name || !indexed_fields || !count) return DB_ERROR_NULL_POINTER;
+
+    Database* db = find_database(db_name);
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
+    
+    Collection* col = find_collection(db, collection_name);
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
+    
+    pthread_rwlock_rdlock(&col->lock);
+    
+    *indexed_fields = malloc(col->indexed_field_count * sizeof(char*));
+    if (!*indexed_fields) {
+        pthread_rwlock_unlock(&col->lock);
+        return DB_ERROR_MEMORY_ALLOCATION;
+    }
+    
+    for (size_t i = 0; i < col->indexed_field_count; i++) {
+        (*indexed_fields)[i] = strdup(col->indexed_fields[i]);
+        if (!(*indexed_fields)[i]) {
+            for (size_t j = 0; j < i; j++) {
+                free((*indexed_fields)[j]);
+            }
+            free(*indexed_fields);
+            pthread_rwlock_unlock(&col->lock);
+            return DB_ERROR_MEMORY_ALLOCATION;
+        }
+    }
+    
+    *count = col->indexed_field_count;
+    pthread_rwlock_unlock(&col->lock);
+    return DB_SUCCESS;
+}
+
+db_error_t db_drop_index(const char* db_name, const char* collection_name, const char* field_name) {
+    if (!db_name || !collection_name || !field_name) return DB_ERROR_NULL_POINTER;
+
+    Database* db = find_database(db_name);
+    if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
+    
+    Collection* col = find_collection(db, collection_name);
+    if (!col) return DB_ERROR_COLLECTION_NOT_FOUND;
+    
+    pthread_rwlock_wrlock(&col->lock);
+    
+    int found = 0;
+    for (size_t i = 0; i < col->indexed_field_count; i++) {
+        if (strcmp(col->indexed_fields[i], field_name) == 0) {
+            found = 1;
+            free(col->indexed_fields[i]);
+            for (size_t j = i; j < col->indexed_field_count - 1; j++) {
+                col->indexed_fields[j] = col->indexed_fields[j+1];
+            }
+            col->indexed_field_count--;
+            break;
+        }
+    }
+    
+    if (!found) {
+        pthread_rwlock_unlock(&col->lock);
+        return DB_ERROR_INDEX_NOT_FOUND;
+    }
+    
+    char** keys_to_delete = NULL;
+    size_t key_count = 0;
+    char prefix[256];
+    snprintf(prefix, sizeof(prefix), "__index__:%s:", field_name);
+    
+    for (int layer_idx = 0; layer_idx < col->tree.layer_count; layer_idx++) {
+        Layer* layer = &col->tree.layers[layer_idx];
+        for (int elem_idx = 0; elem_idx < layer->element_count; elem_idx++) {
+            Element* elem = &layer->elements[elem_idx];
+            if (strncmp(elem->key, prefix, strlen(prefix)) == 0) {
+                keys_to_delete = realloc(keys_to_delete, (key_count + 1) * sizeof(char*));
+                if (!keys_to_delete) {
+                    pthread_rwlock_unlock(&col->lock);
+                    return DB_ERROR_MEMORY_ALLOCATION;
+                }
+                keys_to_delete[key_count] = strdup(elem->key);
+                if (!keys_to_delete[key_count]) {
+                    for (size_t k = 0; k < key_count; k++) {
+                        free(keys_to_delete[k]);
+                    }
+                    free(keys_to_delete);
+                    pthread_rwlock_unlock(&col->lock);
+                    return DB_ERROR_MEMORY_ALLOCATION;
+                }
+                key_count++;
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < key_count; i++) {
+        smt_delete(&col->tree, keys_to_delete[i]);
+        free(keys_to_delete[i]);
+    }
+    free(keys_to_delete);
+    
+    pthread_rwlock_unlock(&col->lock);
     return DB_SUCCESS;
 }
 
 db_error_t db_query_by_field(const char* db_name, const char* collection_name,
-                            const char* field_name, const char* field_value,
-                            char*** keys, size_t* count) {
+                           const char* field_name, const char* field_value,
+                           char*** keys, size_t* count) {
     if (!db_name || !collection_name || !field_name || !field_value || !keys || !count) {
         return DB_ERROR_NULL_POINTER;
     }
@@ -1451,7 +1357,6 @@ db_error_t db_query_by_field(const char* db_name, const char* collection_name,
 
     pthread_rwlock_rdlock(&col->lock);
 
-    // Check if field is indexed
     int is_indexed = 0;
     for (size_t i = 0; i < col->indexed_field_count; i++) {
         if (strcmp(col->indexed_fields[i], field_name) == 0) {
@@ -1462,8 +1367,6 @@ db_error_t db_query_by_field(const char* db_name, const char* collection_name,
 
     if (!is_indexed) {
         pthread_rwlock_unlock(&col->lock);
-        fprintf(stderr, "[ERROR] Field '%s' is not indexed in collection '%s'\n", 
-                field_name, collection_name);
         return DB_ERROR_INVALID_PARAMETER;
     }
 
@@ -1474,7 +1377,7 @@ db_error_t db_query_by_field(const char* db_name, const char* collection_name,
     smt_error_t err = smt_lookup(&col->tree, index_key, &list_str);
     if (err != SMT_SUCCESS) {
         pthread_rwlock_unlock(&col->lock);
-        return DB_SUCCESS;  // No matches found is not an error
+        return DB_SUCCESS;
     }
 
     json_t* list = json_loads(list_str, 0, NULL);
@@ -1531,7 +1434,7 @@ db_error_t db_query_by_field(const char* db_name, const char* collection_name,
     return DB_SUCCESS;
 }
 
-
+// SMT operations
 db_error_t db_get_root_hash(const char* db_name, const char* collection_name, unsigned char* root_hash) {
     if (!db_name || !collection_name || !root_hash) return DB_ERROR_NULL_POINTER;
 
@@ -1592,6 +1495,7 @@ db_error_t db_verify_proof(const char* db_name, const char* collection_name,
     return (db_error_t)err;
 }
 
+// Persistence operations
 db_error_t db_save(const char* db_name) {
     if (!db_name) return DB_ERROR_NULL_POINTER;
     if (!g_db_manager.is_initialized) return DB_ERROR_INVALID_PARAMETER;
@@ -1600,24 +1504,54 @@ db_error_t db_save(const char* db_name) {
     Database* db = find_database(db_name);
     if (!db) return DB_ERROR_DATABASE_NOT_FOUND;
 
-    char path[2048];
-    snprintf(path, sizeof(path), "%s/%s.smtdb", g_db_manager.persistence_path, db_name);
-
-    char temp_path[2048];
-    snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
-
-    int fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd == -1) return DB_ERROR_IO_ERROR;
-
-    db_error_t err = serialize_database(db, fd);
-    close(fd);
-
-    if (err != DB_SUCCESS) {
-        unlink(temp_path);
-        return err;
+    /* Flush memtable -> SSTable for every collection */
+    for (size_t i = 0; i < db->collection_count; ++i) {
+        Collection* col = &db->collections[i];
+        if (!col->is_open) continue;
+        
+        pthread_rwlock_wrlock(&col->lock);
+        db_error_t err = persistence_flush(&col->pm);
+        if (err != DB_SUCCESS) {
+            pthread_rwlock_unlock(&col->lock);
+            return err;
+        }
+        pthread_rwlock_unlock(&col->lock);
     }
 
-    if (rename(temp_path, path) == -1) {
+    // Save database metadata
+    char path[2048];
+    snprintf(path, sizeof(path), "%s/%s%s", g_db_manager.persistence_path, db_name, DB_FILE_EXTENSION);
+
+    char temp_path[2048];
+    snprintf(temp_path, sizeof(temp_path), "%s%s", path, TEMP_FILE_SUFFIX);
+
+    FILE* fp = fopen(temp_path, "w");
+    if (!fp) return DB_ERROR_IO_ERROR;
+
+    json_t* root = json_object();
+    json_object_set_new(root, "name", json_string(db->name));
+    json_object_set_new(root, "created_at", json_integer(db->stats.created_at));
+    json_object_set_new(root, "last_modified", json_integer(db->stats.last_modified));
+
+    json_t* collections = json_array();
+    for (size_t i = 0; i < db->collection_count; i++) {
+        Collection* col = &db->collections[i];
+        if (!col->is_open) continue;
+
+        json_t* col_obj = json_object();
+        json_object_set_new(col_obj, "name", json_string(col->name));
+        json_object_set_new(col_obj, "created_at", json_integer(col->created_at));
+        json_object_set_new(col_obj, "last_modified", json_integer(col->last_modified));
+        json_array_append_new(collections, col_obj);
+    }
+    json_object_set_new(root, "collections", collections);
+
+    json_dumpf(root, fp, JSON_COMPACT);
+    json_decref(root);
+    fclose(fp);
+
+    // Atomic rename
+    if (rename(temp_path, path) != 0) {
         unlink(temp_path);
         return DB_ERROR_IO_ERROR;
     }
@@ -1631,7 +1565,7 @@ db_error_t db_load(const char* db_name) {
     if (g_db_manager.persistence_path[0] == '\0') return DB_ERROR_IO_ERROR;
 
     char path[2048];
-    snprintf(path, sizeof(path), "%s/%s.smtdb", g_db_manager.persistence_path, db_name);
+    snprintf(path, sizeof(path), "%s/%s%s", g_db_manager.persistence_path, db_name, DB_FILE_EXTENSION);
 
     int fd = open(path, O_RDONLY);
     if (fd == -1) return DB_ERROR_IO_ERROR;
@@ -1657,42 +1591,64 @@ db_error_t db_load(const char* db_name) {
 }
 
 db_error_t db_save_all() {
-    if (!g_db_manager.is_initialized) return DB_ERROR_INVALID_PARAMETER;
-    if (g_db_manager.persistence_path[0] == '\0') return DB_ERROR_IO_ERROR;
-
-    pthread_mutex_lock(&g_db_manager.lock);
-
-    char* db_names[MAX_DATABASES];
-    size_t db_count = 0;
-    for (size_t i = 0; i < g_db_manager.db_count; i++) {
-        if (g_db_manager.databases[i].is_open) {
-            db_names[db_count] = strdup(g_db_manager.databases[i].name);
-            if (!db_names[db_count]) {
-                for (size_t j = 0; j < db_count; j++) {
-                    free(db_names[j]);
-                }
-                pthread_mutex_unlock(&g_db_manager.lock);
-                return DB_ERROR_MEMORY_ALLOCATION;
-            }
-            db_count++;
-        }
+    if (!g_db_manager.is_initialized) {
+        return DB_ERROR_INVALID_PARAMETER;
     }
-
-    pthread_mutex_unlock(&g_db_manager.lock);
-
+    
+    // Save metadata first
+    char meta_path[2048];
+    snprintf(meta_path, sizeof(meta_path), "%s/databases.meta", g_db_manager.persistence_path);
+    
+    json_t* root = json_object();
+    json_t* dbs = json_array();
+    
+    for (size_t i = 0; i < g_db_manager.db_count; i++) {
+        Database* db = &g_db_manager.databases[i];
+        json_t* db_obj = json_object();
+        json_object_set_new(db_obj, "name", json_string(db->name));
+        json_object_set_new(db_obj, "is_open", json_boolean(db->is_open));
+        
+        json_t* cols = json_array();
+        for (size_t j = 0; j < db->collection_count; j++) {
+            Collection* col = &db->collections[j];
+            json_t* col_obj = json_object();
+            json_object_set_new(col_obj, "name", json_string(col->name));
+            json_object_set_new(col_obj, "is_open", json_boolean(col->is_open));
+            json_array_append_new(cols, col_obj);
+        }
+        json_object_set_new(db_obj, "collections", cols);
+        json_array_append_new(dbs, db_obj);
+    }
+    json_object_set_new(root, "databases", dbs);
+    
+    // Atomic write using rename
+    char temp_path[2048];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", meta_path);
+    
+    FILE* fp = fopen(temp_path, "w");
+    if (!fp) {
+        json_decref(root);
+        return DB_ERROR_IO_ERROR;
+    }
+    
+    json_dumpf(root, fp, JSON_COMPACT);
+    fclose(fp);
+    json_decref(root);
+    
+    if (rename(temp_path, meta_path) != 0) {
+        unlink(temp_path);
+        return DB_ERROR_IO_ERROR;
+    }
+    
+    // Then save each database
     db_error_t final_error = DB_SUCCESS;
-    for (size_t i = 0; i < db_count; i++) {
-        db_error_t err = db_save(db_names[i]);
+    for (size_t i = 0; i < g_db_manager.db_count; i++) {
+        db_error_t err = db_save(g_db_manager.databases[i].name);
         if (err != DB_SUCCESS) {
             final_error = err;
-            for (size_t j = i; j < db_count; j++) {
-                free(db_names[j]);
-            }
-            break;
         }
-        free(db_names[i]);
     }
-
+    
     return final_error;
 }
 
@@ -1707,16 +1663,19 @@ db_error_t db_load_all() {
     db_error_t final_error = DB_SUCCESS;
 
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG && strlen(entry->d_name) > 7 && 
-            strcmp(entry->d_name + strlen(entry->d_name) - 7, ".smtdb") == 0) {
-            char db_name[MAX_DB_NAME_LEN];
-            strncpy(db_name, entry->d_name, strlen(entry->d_name) - 7);
-            db_name[strlen(entry->d_name) - 7] = '\0';
+        if (entry->d_type == DT_REG) {
+            const char* ext = strstr(entry->d_name, DB_FILE_EXTENSION);
+            if (ext && strlen(ext) == strlen(DB_FILE_EXTENSION)) {
+                char db_name[MAX_DB_NAME_LEN];
+                size_t name_len = ext - entry->d_name;
+                strncpy(db_name, entry->d_name, name_len);
+                db_name[name_len] = '\0';
 
-            db_error_t err = db_load(db_name);
-            if (err != DB_SUCCESS) {
-                final_error = err;
-                break;
+                db_error_t err = db_load(db_name);
+                if (err != DB_SUCCESS) {
+                    final_error = err;
+                    break;
+                }
             }
         }
     }
@@ -1725,31 +1684,7 @@ db_error_t db_load_all() {
     return final_error;
 }
 
-const char* db_error_string(db_error_t error) {
-    switch (error) {
-        case DB_SUCCESS: return "Success";
-        case DB_ERROR_NULL_POINTER: return "Null pointer";
-        case DB_ERROR_MEMORY_ALLOCATION: return "Memory allocation failed";
-        case DB_ERROR_INVALID_PARAMETER: return "Invalid parameter";
-        case DB_ERROR_KEY_NOT_FOUND: return "Key not found";
-        case DB_ERROR_DATABASE_NOT_FOUND: return "Database not found";
-        case DB_ERROR_COLLECTION_NOT_FOUND: return "Collection not found";
-        case DB_ERROR_DATABASE_EXISTS: return "Database already exists";
-        case DB_ERROR_COLLECTION_EXISTS: return "Collection already exists";
-        case DB_ERROR_MAX_LIMIT_REACHED: return "Maximum limit reached";
-        case DB_ERROR_INVALID_JSON: return "Invalid JSON format";
-        case DB_ERROR_CONCURRENT_ACCESS: return "Concurrent access error";
-        case DB_ERROR_DATABASE_CLOSED: return "Database is closed";
-        case DB_ERROR_IO_ERROR: return "I/O error";
-        case DB_ERROR_CORRUPTED_DATA: return "Corrupted data";
-        default: return "Unknown error";
-    }
-}
-
-db_error_t db_compact(const char* db_name) {
-    return DB_SUCCESS;
-}
-
+// Utility functions
 db_error_t db_verify_integrity(const char* db_name, json_t** verification_results) {
     if (!db_name || !verification_results) return DB_ERROR_NULL_POINTER;
 
@@ -1795,11 +1730,118 @@ db_error_t db_verify_integrity(const char* db_name, json_t** verification_result
     return final_error;
 }
 
+static pthread_t autosave_thread;
+static int autosave_running = 0;
+
+// ... existing code ...
+
+static void* autosave_worker(void* arg) {
+    int interval = *(int*)arg;
+    free(arg);
+    
+    while (autosave_running) {
+        sleep(interval);
+        printf("[AUTOSAVE] Periodic save started...\n");
+        db_error_t err = db_save_all();
+        if (err != DB_SUCCESS) {
+            fprintf(stderr, "[AUTOSAVE] Failed: %s\n", db_error_string(err));
+        } else {
+            printf("[AUTOSAVE] Completed successfully\n");
+        }
+    }
+    return NULL;
+}
+
+db_error_t db_autosave_start(int interval_seconds) {
+    if (autosave_running) return DB_SUCCESS;
+    
+    if (interval_seconds <= 0) {
+        return DB_ERROR_INVALID_PARAMETER;
+    }
+    
+    int* interval = malloc(sizeof(int));
+    if (!interval) return DB_ERROR_MEMORY_ALLOCATION;
+    *interval = interval_seconds;
+    
+    autosave_running = 1;
+    if (pthread_create(&autosave_thread, NULL, autosave_worker, interval) != 0) {
+        free(interval);
+        autosave_running = 0;
+        return DB_ERROR_MEMORY_ALLOCATION;
+    }
+    
+    return DB_SUCCESS;
+}
+
+void db_autosave_stop() {
+    if (!autosave_running) return;
+    
+    autosave_running = 0;
+    pthread_join(autosave_thread, NULL);
+}
+
+
+db_error_t db_compact(const char* db_name) {
+    if (!db_name) return DB_ERROR_NULL_POINTER;
+
+    pthread_mutex_lock(&g_db_manager.lock);
+    Database* db = NULL;
+    for (size_t i = 0; i < g_db_manager.db_count; i++) {
+        if (strcmp(db->name[i], db_name) == 0) {
+            db = &g_db_manager.databases[i];
+            break;
+        }
+    }
+    if (!db) {
+        pthread_mutex_unlock(&g_db_manager.lock);
+        return DB_ERROR_DATABASE_NOT_FOUND;
+    }
+
+    if (!db->is_open) {
+        pthread_mutex_unlock(&g_db_manager.lock);
+        return DB_ERROR_DATABASE_CLOSED;
+    }
+
+    // Placeholder for compaction logic
+    // Example: Compact SSTables in each collection's PersistenceManager
+    for (size_t i = 0; i < db->collection_count; i++) {
+        Collection* col = &db->collections[i];
+        // Assuming PersistenceManager is integrated; adjust as needed
+        // persistence_flush(&col->pm); // Uncomment if pm exists
+    }
+
+    pthread_mutex_unlock(&g_db_manager.lock);
+    return DB_SUCCESS;
+}
+
 void db_free_list(char** list, size_t count) {
     if (list) {
         for (size_t i = 0; i < count; i++) {
             free(list[i]);
         }
         free(list);
+    }
+}
+
+const char* db_error_string(db_error_t error) {
+    switch (error) {
+        case DB_SUCCESS: return "Success";
+        case DB_ERROR_NULL_POINTER: return "Null pointer";
+        case DB_ERROR_MEMORY_ALLOCATION: return "Memory allocation failed";
+        case DB_ERROR_INVALID_PARAMETER: return "Invalid parameter";
+        case DB_ERROR_KEY_NOT_FOUND: return "Key not found";
+        case DB_ERROR_DATABASE_NOT_FOUND: return "Database not found";
+        case DB_ERROR_COLLECTION_NOT_FOUND: return "Collection not found";
+        case DB_ERROR_DATABASE_EXISTS: return "Database already exists";
+        case DB_ERROR_COLLECTION_EXISTS: return "Collection already exists";
+        case DB_ERROR_MAX_LIMIT_REACHED: return "Maximum limit reached";
+        case DB_ERROR_INVALID_JSON: return "Invalid JSON format";
+        case DB_ERROR_CONCURRENT_ACCESS: return "Concurrent access error";
+        case DB_ERROR_DATABASE_CLOSED: return "Database is closed";
+        case DB_ERROR_IO_ERROR: return "I/O error";
+        case DB_ERROR_CORRUPTED_DATA: return "Corrupted data";
+        case DB_ERROR_SMT_FAILED: return "Sparse Merkle Tree operation failed";
+        case DB_ERROR_INDEX_NOT_FOUND: return "Index not found";
+        default: return "Unknown error";
     }
 }

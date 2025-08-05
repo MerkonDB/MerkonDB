@@ -9,8 +9,11 @@
 #include <pthread.h>
 #include <jansson.h>
 #include <arpa/inet.h>
+#include "common.h"
 #include <signal.h>
 #include <errno.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 // Include original smt_db.c functions
 //#include "smt_db.c"
@@ -884,7 +887,7 @@ else if (strcmp(operation, "db_drop_index") == 0) {
 
         if (strncmp(operation, "rbac_", 5) == 0 && strcmp(json_string_value(json_object_get(response, "status")), "success") == 0) {
             printf("[%s] [DEBUG] Saving RBAC state after %s\n", timestamp, operation);
-            char rbac_path[1024];
+            char rbac_path[2048];
             snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
             if (rbac_save(&g_rbac, rbac_path) != 0) {
                 printf("[%s] [WARNING] Failed to save RBAC state after %s\n", timestamp, operation);
@@ -908,17 +911,187 @@ else if (strcmp(operation, "db_drop_index") == 0) {
 }
 
 static void signal_handler(int sig) {
+    printf("\nServer shutting down (Signal: %d)...\n", sig);
+    
+    // Stop autosave first
+    db_autosave_stop();
+    
+    // Save all data
+    db_error_t save_err = db_save_all();
+    if (save_err != DB_SUCCESS) {
+        fprintf(stderr, "Failed to save databases: %s\n", db_error_string(save_err));
+    }
+    
+    // Save RBAC state
+    char rbac_path[1024];
+    snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
+    if (rbac_save(&g_rbac, rbac_path) != 0) {
+        fprintf(stderr, "Failed to save RBAC state\n");
+    }
+    
+    // Cleanup
     if (server_fd >= 0) {
         close(server_fd);
     }
-
-    char rbac_path[1024];
-    snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", g_db_manager.persistence_path);
-    rbac_save(&g_rbac, rbac_path);
-
     db_manager_cleanup();
     rbac_cleanup(&g_rbac);
+    
     exit(0);
+}
+
+// Enhanced db_recover_all function
+db_error_t db_recover_all() {
+    if (!g_db_manager.is_initialized) {
+        return DB_ERROR_INVALID_PARAMETER;
+    }
+    
+    // 1. Load database structure from metadata
+    char meta_path[2048];
+    snprintf(meta_path, sizeof(meta_path), "%s/databases.meta", g_db_manager.persistence_path);
+    
+    FILE* fp = fopen(meta_path, "r");
+    if (fp) {
+        json_error_t error;
+        json_t* root = json_loadf(fp, 0, &error);
+        fclose(fp);
+        
+        if (root) {
+            json_t* dbs = json_object_get(root, "databases");
+            if (json_is_array(dbs)) {
+                size_t index;
+                json_t* value;
+                json_array_foreach(dbs, index, value) {
+                    const char* db_name = json_string_value(json_object_get(value, "name"));
+                    if (db_name) {
+                        // Create or open the database
+                        db_error_t err = db_create(db_name);
+                        if (err != DB_SUCCESS && err != DB_ERROR_DATABASE_EXISTS) {
+                            json_decref(root);
+                            return err;
+                        }
+
+                        // Open if it was marked as open
+                        if (json_boolean_value(json_object_get(value, "is_open"))) {
+                            db_open(db_name);
+                        }
+
+                        // Recover collections
+                        json_t* cols = json_object_get(value, "collections");
+                        if (json_is_array(cols)) {
+                            size_t col_idx;
+                            json_t* col_val;
+                            json_array_foreach(cols, col_idx, col_val) {
+                                const char* col_name = json_string_value(json_object_get(col_val, "name"));
+                                if (col_name) {
+                                    db_error_t col_err = db_create_collection(db_name, col_name);
+                                    if (col_err != DB_SUCCESS && col_err != DB_ERROR_COLLECTION_EXISTS) {
+                                        json_decref(root);
+                                        return col_err;
+                                    }
+
+                                    // Load collection data if it was open
+                                    if (json_boolean_value(json_object_get(col_val, "is_open"))) {
+                                        Collection* col = find_collection(find_database(db_name), col_name);
+                                        if (col) {
+                                            pthread_rwlock_wrlock(&col->lock);
+                                            db_error_t load_err = persistence_load(&col->pm);
+                                            pthread_rwlock_unlock(&col->lock);
+                                            if (load_err != DB_SUCCESS) {
+                                                json_decref(root);
+                                                return load_err;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            json_decref(root);
+        }
+    }
+    
+    // 2. Fallback: Scan directory structure for any missing databases/collections
+    DIR* dir = opendir(g_db_manager.persistence_path);
+    if (!dir) {
+        return DB_SUCCESS; // No persistence directory is not an error
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip special entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Check for database directories
+        char db_path[2048];
+        snprintf(db_path, sizeof(db_path), "%s/%s", g_db_manager.persistence_path, entry->d_name);
+        
+        struct stat st;
+        if (stat(db_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            // This is a potential database directory
+            const char* db_name = entry->d_name;
+            
+            // Create database if it doesn't exist
+            int exists;
+            db_error_t err = db_exists(db_name, &exists);
+            if (err != DB_SUCCESS) continue;
+            
+            if (!exists) {
+                err = db_create(db_name);
+                if (err != DB_SUCCESS) continue;
+            }
+
+            // Open the database
+            db_open(db_name);
+            Database* db = find_database(db_name);
+            if (!db) continue;
+
+            // Scan for collections
+            DIR* col_dir = opendir(db_path);
+            if (!col_dir) continue;
+            
+            struct dirent* col_entry;
+            while ((col_entry = readdir(col_dir)) != NULL) {
+                // Skip special entries
+                if (strcmp(col_entry->d_name, ".") == 0 || strcmp(col_entry->d_name, "..") == 0) {
+                    continue;
+                }
+
+                // Check for collection directories
+                char col_path[2048];
+                snprintf(col_path, sizeof(col_path), "%s/%s", db_path, col_entry->d_name);
+                
+                if (stat(col_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                    const char* col_name = col_entry->d_name;
+                    
+                    // Create collection if it doesn't exist
+                    int col_exists;
+                    err = db_collection_exists(db_name, col_name, &col_exists);
+                    if (err != DB_SUCCESS) continue;
+                    
+                    if (!col_exists) {
+                        err = db_create_collection(db_name, col_name);
+                        if (err != DB_SUCCESS) continue;
+                    }
+
+                    // Load collection data
+                    Collection* col = find_collection(db, col_name);
+                    if (col) {
+                        pthread_rwlock_wrlock(&col->lock);
+                        persistence_load(&col->pm);
+                        pthread_rwlock_unlock(&col->lock);
+                    }
+                }
+            }
+            closedir(col_dir);
+        }
+    }
+    closedir(dir);
+    
+    return DB_SUCCESS;
 }
 
 int main(int argc, char* argv[]) {
@@ -930,66 +1103,110 @@ int main(int argc, char* argv[]) {
     int port = atoi(argv[2]);
     if (port <= 0) port = DEFAULT_PORT;
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    // Setup signal handlers with proper sigaction
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGQUIT, &sa, NULL);
 
+    // Initialize database manager with enhanced error reporting
+    printf("Initializing database system...\n");
     db_error_t err = db_manager_init(persistence_path);
     if (err != DB_SUCCESS) {
         fprintf(stderr, "Failed to initialize database manager: %s\n", db_error_string(err));
         exit(1);
     }
-    err = db_load_all();
+
+    // Auto-recover databases with progress reporting
+    printf("Recovering databases from %s...\n", persistence_path);
+    err = db_recover_all();
     if (err != DB_SUCCESS) {
-        fprintf(stderr, "Failed to load databases: %s\n", db_error_string(err));
-        db_manager_cleanup();
-        exit(1);
+        fprintf(stderr, "Warning: Database recovery encountered issues: %s\n", 
+                db_error_string(err));
+        // Continue with partial recovery
     }
 
+    // Start periodic autosave (every 5 minutes)
+    printf("Starting autosave thread...\n");
+    err = db_autosave_start(300); // 300 seconds = 5 minutes
+    if (err != DB_SUCCESS) {
+        fprintf(stderr, "Warning: Failed to start autosave: %s\n", 
+                db_error_string(err));
+    }
+
+    // Initialize RBAC system
+    printf("Initializing RBAC system...\n");
     if (rbac_init(&g_rbac) != 0) {
-        fprintf(stderr, "RBAC initialization failed with errno: %d (%s)\n", errno, strerror(errno));
+        fprintf(stderr, "RBAC initialization failed: %s\n", strerror(errno));
+        db_autosave_stop();
         db_manager_cleanup();
         exit(1);
     }
 
+    // Load RBAC state if exists
     char rbac_path[1024];
     snprintf(rbac_path, sizeof(rbac_path), "%s/rbac.json", persistence_path);
-    rbac_load(&g_rbac, rbac_path);
+    if (access(rbac_path, F_OK) == 0) {
+        printf("Loading RBAC state from %s...\n", rbac_path);
+        if (rbac_load(&g_rbac, rbac_path) != 0) {
+            fprintf(stderr, "Warning: Failed to load RBAC state\n");
+        }
+    } else {
+        printf("No existing RBAC state found, starting fresh\n");
+    }
 
+    // Create server socket with enhanced error handling
+    printf("Starting server on port %d...\n", port);
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("Socket creation failed");
-        db_manager_cleanup();
-        rbac_cleanup(&g_rbac);
-        exit(1);
+        goto cleanup;
     }
 
+    // Set socket options
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("Setsockopt failed");
+        goto cleanup;
+    }
 
-    struct sockaddr_in address = { .sin_family = AF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(port) };
+    // Bind socket
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = INADDR_ANY,
+        .sin_port = htons(port)
+    };
+    
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
         perror("Bind failed");
-        close(server_fd);
-        db_manager_cleanup();
-        rbac_cleanup(&g_rbac);
-        exit(1);
+        goto cleanup;
     }
 
+    // Listen for connections
     if (listen(server_fd, 10) < 0) {
         perror("Listen failed");
-        close(server_fd);
-        db_manager_cleanup();
-        rbac_cleanup(&g_rbac);
-        exit(1);
+        goto cleanup;
     }
 
-    printf("Server running on port %d\n", port);
+    printf("Server ready and accepting connections\n");
+    
+    // Main server loop
     while (1) {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd < 0) {
+            if (errno == EINTR) {
+                // Interrupted by signal, likely shutting down
+                break;
+            }
             perror("Accept failed");
             continue;
         }
+
+        // Handle client in new thread
         pthread_t thread;
         if (pthread_create(&thread, NULL, client_handler, (void*)(intptr_t)client_fd) != 0) {
             perror("Thread creation failed");
@@ -999,8 +1216,36 @@ int main(int argc, char* argv[]) {
         pthread_detach(thread);
     }
 
-    close(server_fd);
+cleanup:
+    // Cleanup sequence
+    printf("Server shutting down...\n");
+    
+    // Stop autosave thread first
+    db_autosave_stop();
+    
+    // Close server socket if open
+    if (server_fd >= 0) {
+        close(server_fd);
+    }
+
+    // Save all data before exiting
+    printf("Saving all databases...\n");
+    db_error_t save_err = db_save_all();
+    if (save_err != DB_SUCCESS) {
+        fprintf(stderr, "Warning: Final save failed: %s\n", db_error_string(save_err));
+    }
+
+    // Save RBAC state
+    printf("Saving RBAC state...\n");
+    if (rbac_save(&g_rbac, rbac_path) != 0) {
+        fprintf(stderr, "Warning: Failed to save RBAC state\n");
+    }
+
+    // Cleanup resources
+    printf("Cleaning up resources...\n");
     db_manager_cleanup();
     rbac_cleanup(&g_rbac);
+
+    printf("Server shutdown complete\n");
     return 0;
 }

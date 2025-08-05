@@ -17,10 +17,24 @@ gcc -shared -fPIC \
 client-server
 --------------
 
-gcc -o server server.c smt.c -ljansson -lssl -lcrypto -pthread
+gcc -o server server.c smt.c smt_db.c rbac.c -ljansson -lssl -lcrypto -pthread
 
 ./server localhost 8080
 
-python3 client.py localhost 8080
+python3 client.py localhost 8080 <admin> <pass>
 
-gcc -o server server.c smt.c smt_db.c rbac.c -ljansson -lssl -lcrypto -pthread
+
+Makefile
+----------
+
+# Compile the server
+make
+
+# Run the server
+make run-server
+
+# Run the client
+make run-client
+
+# Clean the binary
+make clean
